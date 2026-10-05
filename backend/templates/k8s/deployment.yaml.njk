@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ appName }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ appName }}
+    app.kubernetes.io/managed-by: kairo
+  annotations:
+    kairo.dev/deployment-id: "{{ deploymentId }}"
+spec:
+  replicas: {{ replicas }}
+  # rollback needs old ReplicaSets to still be around
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: {{ appName }}
+  template:
+    metadata:
+      labels:
+        app: {{ appName }}
+        app.kubernetes.io/managed-by: kairo
+    spec:
+      containers:
+        - name: {{ appName }}
+          image: {{ image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ port }}
+          env:
+            - name: PORT
+              value: "{{ port }}"
+          resources:
+            requests:
+              cpu: {{ cpuRequest }}
+              memory: {{ memoryRequest }}
+            limits:
+              cpu: {{ cpuLimit }}
+              memory: {{ memoryLimit }}
+          # liveness + memory limit are what make self-healing possible.
+          # don't remove them without talking to BE 2
+          livenessProbe:
+            httpGet:
+              path: {{ healthPath }}
+              port: {{ port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ healthPath }}
+              port: {{ port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5

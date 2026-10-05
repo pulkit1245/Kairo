@@ -1,0 +1,31 @@
+import { AppError } from './AppError.js';
+
+// only public github https urls for now, that's all the demo needs
+const GITHUB_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i;
+
+export function parseGithubUrl(input) {
+  const match = GITHUB_URL.exec(input.trim());
+  if (!match) {
+    throw new AppError('Expected a GitHub URL like https://github.com/owner/repo');
+  }
+  const owner = match[1];
+  const repo = match[2];
+  return { owner, repo, cloneUrl: `https://github.com/${owner}/${repo}.git` };
+}
+
+// the app name becomes the Deployment + Service name in k8s.
+// Services are stricter than Deployments (DNS-1035): lowercase alphanumerics and '-',
+// must START with a letter, end with alphanumeric, max 63 chars
+export function toAppName(repo) {
+  let name = repo
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  // repo named something like "___" would end up empty
+  if (!name) return 'app';
+  if (/^[0-9]/.test(name)) name = `app-${name}`;
+
+  return name.slice(0, 50).replace(/-$/, '');
+}

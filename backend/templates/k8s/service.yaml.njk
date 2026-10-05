@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ appName }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ appName }}
+    app.kubernetes.io/managed-by: kairo
+spec:
+  # NodePort so `minikube service <name> --url` gives us something to open
+  type: NodePort
+  selector:
+    app: {{ appName }}
+  ports:
+    - port: 80
+      targetPort: {{ port }}

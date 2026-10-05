@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// keep these enums identical to the constants in src/types.
+// prisma rejects any value that isn't in the enum, so a typo fails loudly at runtime
+
+enum DeploymentStatus {
+  CLONING
+  DETECTING
+  GENERATING
+  BUILDING
+  DEPLOYING
+  RUNNING
+  FAILED
+}
+
+enum Stack {
+  NODE
+  PYTHON
+}
+
+enum RemediationAction {
+  RESTART
+  ROLLBACK
+  SCALE
+  NONE
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+model Deployment {
+  id            String           @id @default(cuid())
+  repoUrl       String
+  appName       String
+  status        DeploymentStatus @default(CLONING)
+  stack         Stack?
+  commitSha     String?
+  failureReason String?
+  // GeneratedConfig[] - small enough that a separate table isn't worth it yet
+  configs       Json?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  incidents Incident[]
+
+  @@index([appName])
+}
+
+model Incident {
+  id           String            @id @default(cuid())
+  deploymentId String?
+  deployment   Deployment?       @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+  appName      String
+  alertName    String
+  cause        String
+  action       RemediationAction
+  status       IncidentStatus    @default(OPEN)
+  // alertmanager's fingerprint, same alert firing again = same fingerprint
+  fingerprint  String
+  startedAt    DateTime
+  resolvedAt   DateTime?
+  createdAt    DateTime          @default(now())
+
+  @@index([fingerprint, status])
+}
