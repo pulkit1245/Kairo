@@ -37,7 +37,7 @@ export async function runPipeline(deploymentId) {
     });
     await prisma.deployment.update({ where: { id: deploymentId }, data: { configs } });
 
-    // TODO(phase 2): BUILDING  -> docker build against minikube's daemon
+    // TODO(phase 2): BUILDING  -> docker build with Docker Desktop's engine (kubeadm sees local images)
     //                DEPLOYING -> apply the manifests with the k8s client
     //                RUNNING   -> once the rollout is ready
     // until then the deployment just stops at GENERATING with its configs filled in

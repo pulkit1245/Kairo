@@ -1,7 +1,7 @@
 import { render } from './renderer.service.js';
 
 // Small on purpose. The memory limit is what lets us demo an OOMKill ->
-// restart, and minikube on a laptop doesn't have much to give anyway.
+// restart, and Docker Desktop on a laptop doesn't have much to give anyway.
 const RESOURCES = {
   cpuRequest: '100m',
   cpuLimit: '500m',
@@ -24,7 +24,7 @@ export function generateConfigs(input) {
     deploymentId: input.deploymentId,
     appName: input.appName,
     namespace: input.namespace,
-    // built straight into minikube's docker daemon in phase 2, so no registry
+    // built with Docker Desktop's engine in phase 2; its kubeadm cluster uses local images, so no registry
     image: `kairo/${input.appName}:${input.commitSha.slice(0, 7)}`,
     port: detected.port,
     startCommand: detected.startCommand,

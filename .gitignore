@@ -15,5 +15,8 @@ coverage/
 *.tfstate
 *.tfstate.backup
 
-# personal notes, not part of the repo
-docs_learning/
+# planning docs, design files, phase notes and Claude files stay local, never on GitHub
+docs/planning/
+CLAUDE.md
+CLAUDE.local.md
+.claude/

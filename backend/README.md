@@ -17,7 +17,7 @@ npx prisma migrate dev --name init   # first time only, creates the tables
 npm run dev
 ```
 
-`curl localhost:4000/api/health` should say `"db":"up"`. `cluster` stays `down` until minikube is running.
+`curl localhost:4000/api/health` should say `"db":"up"`. `cluster` stays `down` until Docker Desktop's Kubernetes is running (Settings → Kubernetes, kubeadm provisioner).
 
 ## Endpoints (phase 1)
 
