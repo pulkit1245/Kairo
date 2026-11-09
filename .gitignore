@@ -15,7 +15,7 @@ coverage/
 *.tfstate
 *.tfstate.backup
 
-# planning docs, design files, phase notes and Claude files stay local, never on GitHub
+# planning docs
 docs/planning/
 CLAUDE.md
 CLAUDE.local.md
