@@ -4,7 +4,7 @@ All endpoints are under `/api` on the backend (`http://localhost:4000`) and retu
 
 The enum values below are fixed. They live in `backend/src/types/`, the Prisma schema and `frontend/src/types/enums.js`, and a test keeps the three equal.
 
-State as of P2a. The app page, PR, metrics, logs, rollback, test panel and delete endpoints (P2b, P2c, P3) aren't here yet.
+State as of P2b. The app page, metrics, logs, rollback, test panel and delete endpoints (P2c, P3) aren't here yet.
 
 ## Sign-in (FR-1, FR-2, FR-42)
 
@@ -78,6 +78,19 @@ Starts onboarding from a picked repo (FR-3). Body `{ "repoFullName": "owner/repo
 | `502` | GitHub didn't answer |
 | `503` | The cluster can't be reached, so the limit can't be checked |
 
+## POST /api/apps/:slug/pr
+
+Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy, Kairo opens or updates the PR; if it wasn't, Kairo checks it again first (FR-72) and opens the PR only if it passes. Returns the app's PR fields:
+
+```json
+{ "prState": "OPEN", "prNumber": 3, "prError": null }
+```
+
+| Status | When |
+| --- | --- |
+| `404` | No such app among your installations |
+| `409` | The PR is already merged, the preview is still in its grace window, or there's no running preview |
+
 ## GET /api/health
 
 ```json
@@ -137,6 +150,19 @@ A "deployment" is one pipeline run plus a few fields from its app.
   "explanation": null,
   "startedAt": "2026-11-10T10:35:50.000Z",
   "finishedAt": "2026-11-10T10:35:53.000Z",
+  "pr": { "state": "OPEN", "number": 3, "url": "https://github.com/PunitXd/kairo-node-sample/pull/3", "error": null, "bot": "kairo-devops[bot]" },
+  "facts": {
+    "packageManager": { "value": "npm", "source": "rule", "from": "package-lock.json" },
+    "nodeVersion": { "value": 22, "source": "default", "from": "no engines.node in package.json" }
+  },
+  "assumptions": ["The app listens on $PORT (3000) on 0.0.0.0."],
+  "release": {
+    "id": "cm...",
+    "status": "ACTIVE",
+    "deployedAt": "2026-11-10T10:35:53.000Z",
+    "healthyAt": null,
+    "graceEndsAt": "2026-11-10T10:36:53.000Z"
+  },
   "configs": [
     { "kind": "DOCKERFILE", "origin": "GENERATED", "path": "Dockerfile", "content": "FROM node:20-alpine\n..." }
   ]
@@ -150,13 +176,18 @@ A "deployment" is one pipeline run plus a few fields from its app.
 | `installed` | `true` when the app was picked from a GitHub App installation (`POST /api/apps`), `false` for the URL shortcut. Retry uses the same route |
 | `status` | `CLONING`, `DETECTING`, `GENERATING`, `BUILDING`, `DEPLOYING`, `RUNNING` or `FAILED` |
 | `failedStep` | The step it was on when it failed, else `null` |
-| `stack` | `NODE`, `PYTHON` or `null` before detection |
+| `stack` | `NODE`, `PYTHON`, or `null` before detection or for a repo with only a Dockerfile |
 | `failureReason` | Readable reason when `FAILED`, one line. E.g. `Build failed (docker exited with code 1)` or `App didn't answer on $PORT (3000) within 3 minutes (CrashLoopBackOff)` |
 | `logTail` | When the build failed: its last 80 log lines (FR-28). Otherwise `[]` |
 | `explanation` | Gemini's explanation of a failure (P4), else `null` |
 | `finishedAt` | `null` while the run is still going. Set when it ends, at `RUNNING` or `FAILED` |
 | `configs[].kind` | `DOCKERFILE`, `DEPLOYMENT`, `SERVICE`, `INGRESS`, `WORKFLOW` or `ALERT_RULES` |
-| `configs[].origin` | `GENERATED`, or `KEPT_EXISTING` when the repo already had the file (P2) |
+| `configs[].origin` | `GENERATED`, or `KEPT_EXISTING` when the repo already had the file (FR-25). A kept Dockerfile is built as it is and left out of the PR |
+| `pr.state` | `OPEN`, `MERGED`, `CLOSED`, `FAILED` (with `pr.error`), or `null` before Kairo has tried (FR-34, AQ11). On every deployment |
+| `pr.bot` | The account the PR comes from: the GitHub App's bot, `<app slug>[bot]` |
+| `facts` | Detail only. Each detected fact: `value`, `source` (`rule` = read from the repo, `default`) and `from` (FR-15) |
+| `assumptions` | Detail only. What Kairo assumed, also listed in the PR |
+| `release` | Detail only. The preview release this run produced: `healthyAt` is set once it passes its 60 s grace window (`graceEndsAt`) (FR-71, FR-72). `null` before `RUNNING` |
 
 The image tag is the full commit sha: `kairo/<appName>:<commitSha>`. A run that reaches `RUNNING` records an `ACTIVE` release; the app answers through Traefik on `http://<appName>.kairo.local` (`curl -H "Host: <appName>.kairo.local" http://localhost/`).
 
