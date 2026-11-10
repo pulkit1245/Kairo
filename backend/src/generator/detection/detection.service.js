@@ -16,7 +16,7 @@ import { AppError } from '../../utils/AppError.js';
 export const NODE_PORT = 3000;
 export const PYTHON_PORT = 8000;
 export const DEFAULT_NODE_VERSION = 22;
-// majors with an official node:<n>-alpine image Kairo will use
+// majors with an official node:<n>-slim image Kairo will use
 export const NODE_VERSIONS = [18, 20, 22, 24];
 const PYTHON_VERSION = '3.12';
 const PYTHON_ENTRYPOINTS = ['main.py', 'app.py', 'server.py'];

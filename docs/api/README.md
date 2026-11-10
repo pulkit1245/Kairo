@@ -164,7 +164,7 @@ A "deployment" is one pipeline run plus a few fields from its app.
     "graceEndsAt": "2026-11-10T10:36:53.000Z"
   },
   "configs": [
-    { "kind": "DOCKERFILE", "origin": "GENERATED", "path": "Dockerfile", "content": "FROM node:20-alpine\n..." }
+    { "kind": "DOCKERFILE", "origin": "GENERATED", "path": "Dockerfile", "content": "FROM node:20-slim\n..." }
   ]
 }
 ```

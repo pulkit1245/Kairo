@@ -105,7 +105,7 @@ describe('generateConfigs', () => {
 describe('Node Dockerfile (FR-12, M5, M6)', () => {
   it('uses the detected Node version and writes CMD in exec form', () => {
     const d = find(render(nodeApp({ version: 20 })), 'DOCKERFILE').content;
-    assert.match(d, /^FROM node:20-alpine$/m);
+    assert.match(d, /^FROM node:20-slim$/m);
     assert.match(d, /^CMD \["npm","start"\]$/m);
   });
 
