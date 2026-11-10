@@ -17,6 +17,10 @@ export const ALERT_NAMES = Object.freeze([
   'KairoHighLatency',
 ]);
 
+// FR-72 (added 11 Nov): one of these firing inside a release's grace window
+// keeps it from being marked healthy, even if it resolves before the end
+export const HEALTH_BLOCKING_ALERTS = Object.freeze(['KairoOOMKilled', 'KairoCrashLoop']);
+
 export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);

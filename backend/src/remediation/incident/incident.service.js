@@ -1,7 +1,7 @@
 import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
-import { inGrace } from '../../shipping/grace.service.js';
+import { inGrace, noteAlert } from '../../shipping/grace.service.js';
 import { isRolloutInProgress } from '../../state/rollout.state.js';
 import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
@@ -50,6 +50,9 @@ async function openIncident(alert) {
 
   const { action, cause } = decideAction(alert.alertName, alert.summary);
   const target = { ...alert, namespace: alert.namespace ?? app.namespace };
+
+  // FR-72: an OOM kill or crash loop inside a grace window rules the release out
+  if (noteAlert(app.slug, alert.alertName)) log.info(`${alert.alertName} on ${app.slug} in its grace window: the release won't be marked healthy`);
 
   // FR-71: during the grace window after a rollout, record the alert and
   // defer its action; runDeferredActions() runs it if it still fires at the end
