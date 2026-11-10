@@ -16,7 +16,8 @@ const log = createLogger('remediation');
 //   1. no action for the alert                      -> SKIPPED
 //   2. the app NEEDS_ATTENTION                      -> SKIPPED, Kairo stopped acting (FR-48, FR-73)
 //   3. auto-heal off                                -> SKIPPED, NEEDS_ATTENTION (FR-51, AQ9)
-//   4. mid-rollout, or another action being checked -> SKIPPED
+//   4. mid-rollout, or another action running or being checked -> SKIPPED
+//      (a rollback may take over: see claimAction())
 //   5. 3 attempts in the last 10 minutes            -> SKIPPED, NEEDS_ATTENTION (FR-48)
 //   6. act (executor.service.js), then HEALING and the 90 s check (FR-73)
 //
@@ -43,14 +44,22 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
   if (state.getHealth(app.slug) === 'NEEDS_ATTENTION') return skip('the app needs attention: Kairo stopped acting on it');
   if (!state.isAutoHeal(app.slug)) return skip('auto-heal is off', 'an alert fired with auto-heal off');
   if (isRolloutInProgress(app.slug)) return skip('app is mid-rollout');
-  if (state.isVerifying(app.slug)) return skip('another action is still being verified');
   if (!NOT_COUNTED.has(action) && state.recentAttempts(app.slug) >= state.GIVE_UP_ATTEMPTS) {
     log.warn(`${app.slug}: ${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes, giving up`);
     return skip(`gave up: ${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes`, `${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes didn't fix it`);
   }
+  // claimed before the first await, so a second alert can't slip in
+  const token = state.claimAction(app.slug, action);
+  if (token === null) return skip('another action is still being verified');
 
   // act
-  const outcome = await executeAction(action, { appId: app.id, slug: app.slug, namespace: app.namespace, pod: ctx.pod ?? null });
+  let outcome;
+  try {
+    outcome = await executeAction(action, { appId: app.id, slug: app.slug, namespace: app.namespace, pod: ctx.pod ?? null });
+  } catch (err) {
+    state.releaseAction(app.slug, token);
+    throw err;
+  }
   const ran = outcome.action ?? action;
   const attempt = {
     action: ran,
@@ -61,6 +70,7 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
     fromReleaseId: outcome.rollback?.from?.id ?? null,
     toReleaseId: outcome.rollback?.to?.id ?? null,
   };
+  if (outcome.result !== 'APPLIED') state.releaseAction(app.slug, token);
   if (outcome.result === 'SKIPPED') return done(app, attempt, outcome.note);
   if (!NOT_COUNTED.has(ran)) state.countAttempt(app.slug, attemptedAt.getTime());
   if (outcome.result === 'FAILED') return done(app, attempt, outcome.note);
@@ -85,6 +95,7 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
       attemptId,
       attentionAfter: outcome.attentionAfter,
       startedAt: attemptedAt.getTime(),
+      token,
     }).catch((err) => log.error(`checking ${app.slug}'s ${ran} failed`, err));
   };
   return { attempt, note: outcome.note, followUp };

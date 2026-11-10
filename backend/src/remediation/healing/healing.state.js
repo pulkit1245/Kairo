@@ -7,7 +7,8 @@ import { prisma } from '../../db/index.js';
 //   health:   slug -> { health: HEALTHY | HEALING | NEEDS_ATTENTION, reason, since }
 //   autoHeal: slug -> boolean
 //   recent:   slug -> [attempt times], automatic attempts that count for give-up
-//   verifying: slugs with an action still being checked
+//   acting:   slug -> { action, token }, an action running or being checked.
+//             Claimed before the action, released when its check ends
 
 export const GIVE_UP_ATTEMPTS = 3; // FR-48
 export const GIVE_UP_WINDOW_MS = 10 * 60 * 1000;
@@ -15,7 +16,8 @@ export const GIVE_UP_WINDOW_MS = 10 * 60 * 1000;
 const health = new Map();
 const autoHeal = new Map();
 const recent = new Map();
-const verifying = new Set();
+const acting = new Map();
+let nextToken = 0;
 
 export const getHealth = (slug) => health.get(slug)?.health ?? 'HEALTHY';
 export const attentionReason = (slug) => health.get(slug)?.reason ?? null;
@@ -49,9 +51,25 @@ export function countAttempt(slug, at = Date.now()) {
 // a cleared NEEDS_ATTENTION starts the count again
 export const clearAttempts = (slug) => recent.delete(slug);
 
-export const isVerifying = (slug) => verifying.has(slug);
-export const beginVerifying = (slug) => verifying.add(slug);
-export const endVerifying = (slug) => verifying.delete(slug);
+export const isVerifying = (slug) => acting.has(slug);
+
+// Claims the app for one action, at once, so two alerts arriving in separate
+// webhook calls can't both act (Alertmanager sends each alert name on its
+// own). A rollback may take over from another action: a crash-looping release
+// is only fixed by rolling it back, whatever else is being checked.
+// Returns a token for releaseAction(), or null when the app is taken.
+export function claimAction(slug, action) {
+  const current = acting.get(slug);
+  if (current && !(action === 'ROLLBACK' && current.action !== 'ROLLBACK')) return null;
+  const token = ++nextToken;
+  acting.set(slug, { action, token });
+  return token;
+}
+
+// only the holder releases it: a check that was taken over leaves the claim alone
+export function releaseAction(slug, token) {
+  if (acting.get(slug)?.token === token) acting.delete(slug);
+}
 
 // Attempts that count toward give-up: automatic, an action that ran (not
 // SKIPPED), and not a scale-down (decision 6)
@@ -65,7 +83,7 @@ export async function rebuild(now = Date.now()) {
   health.clear();
   autoHeal.clear();
   recent.clear();
-  verifying.clear();
+  acting.clear();
   const [apps, attempts] = await Promise.all([
     prisma.app.findMany({ where: { deletedAt: null }, select: { slug: true, health: true, autoHeal: true } }),
     prisma.remediationAttempt.findMany({
@@ -87,5 +105,5 @@ export function _reset() {
   health.clear();
   autoHeal.clear();
   recent.clear();
-  verifying.clear();
+  acting.clear();
 }

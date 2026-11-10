@@ -105,6 +105,10 @@ export async function endGrace(releaseId) {
   return verdict;
 }
 
+// how a release is named in the log: Break It's TEST release carries the
+// commit it was made from, which would read like the real release
+const releaseName = (r) => (r.source === 'TEST' ? 'the Break It release' : `release ${r.commitSha.slice(0, 7)}`);
+
 async function judge(release, app, blockedBy) {
   if (release.healthyAt) {
     await hooks.onHealthy(release, app, { newlyMarked: false });
@@ -118,14 +122,14 @@ async function judge(release, app, blockedBy) {
       data: { healthyAt: new Date() },
     });
     if (marked.count) {
-      log.info(`${app.slug}: release ${release.commitSha.slice(0, 7)} is healthy`);
+      log.info(`${app.slug}: ${releaseName(release)} is healthy`);
       await hooks.onHealthy({ ...release, healthyAt: new Date() }, app, { newlyMarked: true });
       return { healthy: true };
     }
     verdict.healthy = false;
     verdict.reason = 'a newer release replaced it';
   }
-  log.warn(`${app.slug}: release ${release.commitSha.slice(0, 7)} not marked healthy: ${verdict.reason}`);
+  log.warn(`${app.slug}: ${releaseName(release)} not marked healthy: ${verdict.reason}`);
   await hooks.onUnhealthy(release, app, verdict.reason);
   return verdict;
 }

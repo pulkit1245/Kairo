@@ -27,12 +27,14 @@ export const POLL_MS = 3000;
  * @param {Promise<string|null>|string|null} p.attemptId
  * @param {string} [p.attentionAfter] verified or not, the app needs attention after (FR-50)
  * @param {number} [p.startedAt]
+ * @param {number} [p.token]          heal()'s claim on the app
  * @returns {Promise<{ result: 'VERIFIED' | 'UNVERIFIED', detail?: string }>}
  */
 export async function verifyAction(p, deps = { check: actionTookEffect, db: prisma, pollMs: POLL_MS, verifyMs: VERIFY_MS }) {
   const { slug, namespace, action, expect, attemptId, attentionAfter } = p;
   const deadline = (p.startedAt ?? Date.now()) + deps.verifyMs;
-  state.beginVerifying(slug);
+  // heal() claimed the app before acting; a resumed check claims it here
+  const token = p.token ?? state.claimAction(slug, action);
   let verdict = { done: false, detail: 'not checked' };
   try {
     for (;;) {
@@ -45,7 +47,7 @@ export async function verifyAction(p, deps = { check: actionTookEffect, db: pris
       await new Promise((r) => setTimeout(r, deps.pollMs));
     }
   } finally {
-    state.endVerifying(slug);
+    state.releaseAction(slug, token);
   }
 
   const result = verdict.done ? 'VERIFIED' : 'UNVERIFIED';

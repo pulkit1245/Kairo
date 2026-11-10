@@ -74,8 +74,21 @@ describe('the healing gate (FR-48, FR-51, FR-73)', () => {
     beginRollout('demo');
     assert.match((await heal(app, 'RESTART', { pod: 'p' })).note, /mid-rollout/);
     endRollout('demo');
-    state.beginVerifying('demo');
+    state.claimAction('demo', 'SCALE_UP');
     assert.match((await heal(app, 'RESTART', { pod: 'p' })).note, /being verified/);
+  });
+
+  it('claims the app at once; only a rollback may take over, and only its holder releases it', () => {
+    const restart = state.claimAction('demo', 'RESTART');
+    assert.ok(restart);
+    assert.equal(state.claimAction('demo', 'SCALE_UP'), null);
+    const rollback = state.claimAction('demo', 'ROLLBACK');
+    assert.ok(rollback);
+    assert.equal(state.claimAction('demo', 'ROLLBACK'), null, 'not two rollbacks');
+    state.releaseAction('demo', restart); // the restart's check ends: the rollback keeps the app
+    assert.equal(state.isVerifying('demo'), true);
+    state.releaseAction('demo', rollback);
+    assert.equal(state.isVerifying('demo'), false);
   });
 });
 
