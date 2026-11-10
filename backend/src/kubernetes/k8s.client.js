@@ -266,7 +266,13 @@ export async function actionTookEffect(namespace, name, { image, replicas, gone 
   if (replicas !== undefined && want !== replicas) return { done: false, detail: `the Deployment asks for ${want} replicas, not ${replicas}` };
   if ((s.observedGeneration ?? 0) < (d.metadata?.generation ?? 1)) return { done: false, detail: 'the change is not picked up yet' };
   const ready = (s.readyReplicas ?? 0) === want && (s.updatedReplicas ?? 0) === want && (s.replicas ?? 0) === want;
-  if (!ready) return { done: false, detail: (await podTrouble(namespace, name)) ?? `${s.readyReplicas ?? 0} of ${want} replicas ready` };
+  if (!ready) {
+    // a pod's own reason (CrashLoopBackOff...) says more than a count; a plain
+    // "not ready" says less (e.g. a replica that couldn't even be created)
+    const trouble = await podTrouble(namespace, name);
+    const count = `${s.readyReplicas ?? 0} of ${want} replicas ready`;
+    return { done: false, detail: trouble && trouble !== 'not ready' && trouble !== 'no pods' ? `${trouble}, ${count}` : count };
+  }
   if (gone && (await listAppPods(namespace, name)).includes(gone)) return { done: false, detail: `pod ${gone} is still there` };
   return { done: true };
 }

@@ -63,6 +63,18 @@ describe('the healing gate (FR-48, FR-51, FR-73)', () => {
     assert.equal(state.getHealth('demo'), 'NEEDS_ATTENTION');
   });
 
+  it('keeps counting across verified actions, so the 4th within 10 minutes gives up', async () => {
+    const fast = { check: async () => ({ done: true }), pollMs: 1, verifyMs: 10, db: { remediationAttempt: { update: async () => {} } } };
+    for (let i = 0; i < 3; i++) {
+      state.countAttempt('demo');
+      setAppHealth('demo', 'HEALING');
+      await verifyAction({ slug: 'demo', namespace: 'kairo-demo', action: 'RESTART', expect: {}, attemptId: null }, fast);
+      assert.equal(state.getHealth('demo'), 'HEALTHY');
+    }
+    assert.equal(state.recentAttempts('demo'), 3);
+    assert.match((await heal(app, 'RESTART', { pod: 'p' })).note, /gave up/);
+  });
+
   it('forgets attempts older than 10 minutes', () => {
     const now = Date.now();
     state.countAttempt('demo', now - 11 * 60_000);

@@ -13,7 +13,9 @@ export function setAppHealth(slug, health, reason = null) {
   state.setHealthState(slug, health, reason);
   if (health === before && health !== 'NEEDS_ATTENTION') return;
   if (health !== before) log.info(`${slug}: ${before} -> ${health}${reason ? ` (${reason})` : ''}`);
-  if (health === 'HEALTHY') state.clearAttempts(slug);
+  // the give-up count only starts again when NEEDS_ATTENTION clears (FR-49), not
+  // after each verified action: otherwise it could never reach 3 (FR-48)
+  if (health === 'HEALTHY' && before === 'NEEDS_ATTENTION') state.clearAttempts(slug);
   writeHealth(slug, health).catch(() => {});
 }
 
