@@ -10,6 +10,7 @@ import {
   putAlertRules,
   waitForRollout,
 } from '../kubernetes/k8s.client.js';
+import { beginRollout, endRollout } from '../state/rollout.state.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
 import { appImage, appNamespace } from '../utils/appNames.js';
@@ -103,6 +104,8 @@ export async function runPipeline(runId) {
 
     step = 'DEPLOYING';
     await moveTo(runId, step);
+    // remediation leaves the app alone until this run ends (FR-74)
+    beginRollout(app.slug);
     await ensureNamespace(namespace, {
       'app.kubernetes.io/managed-by': 'kairo',
       app: app.slug,
@@ -142,6 +145,7 @@ export async function runPipeline(runId) {
       finishedAt: new Date(),
     });
   } finally {
+    endRollout(app.slug);
     // FR-10: the clone never outlives the run, success or failure
     if (dir) {
       await rm(dir, { recursive: true, force: true }).catch((e) => log.warn(`could not delete ${dir}: ${errorMessage(e)}`));

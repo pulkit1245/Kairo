@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { env } from './config/env.config.js';
 import { emptyWorkspace, failInterruptedRuns } from './generator/pipeline.service.js';
+import { rebuildIncidentState } from './remediation/incident/incident.service.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
 
@@ -10,6 +11,9 @@ async function main() {
   try {
     const stuck = await failInterruptedRuns();
     if (stuck > 0) log.warn(`marked ${stuck} half-finished pipeline run(s) as FAILED`);
+    // FR-74: healing decides from memory, filled from the database once here
+    const state = await rebuildIncidentState();
+    log.info(`healing state: ${state.openIncidents} open incident(s), ${state.apps} app(s)`);
   } catch (err) {
     // most likely postgres isn't running. still start so /api/health can say so
     log.error('could not reach the database on startup', err);
