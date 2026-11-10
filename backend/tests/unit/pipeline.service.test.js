@@ -7,7 +7,9 @@ function fakeDb(runs) {
   return {
     pipelineRun: {
       async findMany({ where }) {
-        return runs.filter((r) => r.finishedAt === where.finishedAt);
+        return runs.filter(
+          (r) => r.finishedAt === where.finishedAt && where.status.in.includes(r.status),
+        );
       },
       async update({ where, data }) {
         Object.assign(runs.find((r) => r.id === where.id), data);
@@ -23,6 +25,8 @@ describe('failInterruptedRuns', () => {
       { id: 'finished-at-generating', status: 'GENERATING', finishedAt: done },
       { id: 'already-failed', status: 'FAILED', finishedAt: done },
       { id: 'cut-off-while-cloning', status: 'CLONING', finishedAt: null },
+      // written before finishedAt existed: keeps its real reason
+      { id: 'old-failed-row', status: 'FAILED', failedStep: 'DETECTING', errorLog: 'Unsupported project', finishedAt: null },
     ];
 
     const count = await failInterruptedRuns(fakeDb(runs));
@@ -34,5 +38,7 @@ describe('failInterruptedRuns', () => {
     assert.equal(runs[2].failedStep, 'CLONING');
     assert.match(runs[2].errorLog, /Interrupted/);
     assert.ok(runs[2].finishedAt instanceof Date);
+    assert.equal(runs[3].failedStep, 'DETECTING');
+    assert.equal(runs[3].errorLog, 'Unsupported project');
   });
 });

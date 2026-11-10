@@ -1,5 +1,6 @@
 import { env } from '../config/env.config.js';
 import { prisma } from '../db/index.js';
+import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
 import { createLogger } from '../utils/logger.js';
 import { cloneUrlFor } from '../utils/repoUrl.js';
@@ -77,9 +78,12 @@ function moveTo(id, status, extra = {}) {
 // and the stepper on the frontend spins forever. Clean those up on boot.
 // Only finishedAt decides: a run that stopped at GENERATING (the last step in P0)
 // is finished, not interrupted. db is a parameter so the unit test can fake it
+// A run already in a final state (FAILED, RUNNING) is never touched, even with
+// no finishedAt: rows written before finishedAt existed would otherwise lose
+// their real failure reason.
 export async function failInterruptedRuns(db = prisma) {
   const stuck = await db.pipelineRun.findMany({
-    where: { finishedAt: null },
+    where: { finishedAt: null, status: { in: [...IN_PROGRESS_STATUSES] } },
     select: { id: true, status: true },
   });
 
