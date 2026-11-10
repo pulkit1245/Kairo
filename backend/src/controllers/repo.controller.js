@@ -1,4 +1,5 @@
 import { retrySetupPr } from '../generator/pr/pr.service.js';
+import { getApp } from '../services/app.service.js';
 import { onboardRepo } from '../services/deployment.service.js';
 import { listRepos } from '../services/repo.service.js';
 
@@ -17,4 +18,9 @@ export async function onboard(req, res) {
 // POST /api/apps/:slug/pr: Try again when the PR couldn't be opened (AQ11)
 export async function retryPr(req, res) {
   res.json(await retrySetupPr(req.user.id, req.params.slug));
+}
+
+// GET /api/apps/:slug: the app page (Stitch 07 header)
+export async function show(req, res) {
+  res.json(await getApp(req.params.slug));
 }

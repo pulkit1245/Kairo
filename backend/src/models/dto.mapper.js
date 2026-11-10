@@ -71,6 +71,50 @@ function prDto(app) {
 }
 
 /**
+ * The app page header and release list (P2c, Stitch 07).
+ * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
+ * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38) }
+ */
+export function toAppDto(row, { graceMs, storedImages }) {
+  const run = row.pipelineRuns?.[0] ?? null;
+  const release = (r) => ({
+    id: r.id,
+    commitSha: r.commitSha,
+    commitMessage: r.commitMessage,
+    imageRef: r.imageRef,
+    source: r.source,
+    status: r.status,
+    deployedAt: iso(r.deployedAt),
+    healthyAt: iso(r.healthyAt),
+    graceEndsAt: iso(new Date(r.deployedAt.getTime() + graceMs)),
+    // FR-38: pruned images can't be rolled back to (FR-50)
+    imageStored: storedImages.has(r.imageRef),
+  });
+  const active = row.releases.find((r) => r.status === 'ACTIVE');
+  return {
+    id: row.id,
+    slug: row.slug,
+    repoFullName: row.repoFullName,
+    repoUrl: `https://github.com/${row.repoFullName}`,
+    defaultBranch: row.defaultBranch,
+    installed: Boolean(row.installationId),
+    stack: row.stack,
+    health: row.health,
+    autoHeal: row.autoHeal,
+    replicas: row.replicas,
+    publicUrl: row.publicUrl,
+    pipeline: run
+      ? { id: run.id, status: run.status, failedStep: run.failedStep, startedAt: iso(run.startedAt), finishedAt: iso(run.finishedAt) }
+      : null,
+    release: active ? release(active) : null,
+    releases: row.releases.map(release),
+    pr: prDto(row),
+    // FR-35: Kairo rolls out new GHCR images once the setup PR is merged
+    watchingGhcr: row.prState === 'MERGED',
+  };
+}
+
+/**
  * row: an Incident with `app` and `attempts` included
  * @returns {import('../types/incident.types.js').Incident}
  */

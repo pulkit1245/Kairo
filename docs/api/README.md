@@ -78,6 +78,38 @@ Starts onboarding from a picked repo (FR-3). Body `{ "repoFullName": "owner/repo
 | `502` | GitHub didn't answer |
 | `503` | The cluster can't be reached, so the limit can't be checked |
 
+## GET /api/apps/:slug
+
+The app page (since P2c): header, active release and the last 10 releases. 404 for an unknown or deleted app.
+
+```json
+{
+  "slug": "kairo-node-sample",
+  "repoFullName": "PunitXd/kairo-node-sample",
+  "repoUrl": "https://github.com/PunitXd/kairo-node-sample",
+  "defaultBranch": "main",
+  "installed": true,
+  "stack": "NODE",
+  "health": "HEALTHY",
+  "autoHeal": true,
+  "replicas": 1,
+  "publicUrl": null,
+  "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
+  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true },
+  "releases": [ "…same shape, newest first…" ],
+  "pr": { "state": "MERGED", "number": 1, "url": "https://github.com/PunitXd/kairo-node-sample/pull/1", "error": null, "bot": "kairo-devops[bot]" },
+  "watchingGhcr": true
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `release` | The `ACTIVE` release, or `null` |
+| `releases[].source` | `PREVIEW` (built on the laptop during onboarding) or `GHCR` (built by the repo's workflow, rolled out by Kairo) |
+| `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
+| `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
+| `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
+
 ## POST /api/apps/:slug/pr
 
 Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy, Kairo opens or updates the PR; if it wasn't, Kairo checks it again first (FR-72) and opens the PR only if it passes. Returns the app's PR fields:

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { recoverySeconds, toDeploymentDto, toIncidentDto } from '../../src/models/dto.mapper.js';
+import { recoverySeconds, toAppDto, toDeploymentDto, toIncidentDto } from '../../src/models/dto.mapper.js';
 
 const app = { id: 'app1', slug: 'hello-node', repoFullName: 'alice/hello-node', stack: 'NODE' };
 
@@ -84,5 +84,35 @@ describe('recoverySeconds', () => {
     const start = new Date('2026-11-10T10:00:00.000Z');
     assert.equal(recoverySeconds(start, new Date('2026-11-10T10:00:12.345Z')), 12.3);
     assert.equal(recoverySeconds(start, new Date('2026-11-10T09:59:59Z')), 0);
+  });
+});
+
+describe('toAppDto (P2c app page)', () => {
+  const t = new Date('2026-11-11T12:00:00Z');
+  const rel = (id, status, imageRef, healthyAt = null) => ({
+    id, commitSha: `${id}`.padEnd(40, '0'), commitMessage: `msg ${id}`, imageRef, source: 'GHCR', status, deployedAt: t, healthyAt,
+  });
+  const row = {
+    ...app,
+    installationId: 'inst1',
+    defaultBranch: 'main',
+    health: 'HEALTHY',
+    autoHeal: true,
+    replicas: 1,
+    publicUrl: null,
+    prNumber: 1,
+    prState: 'MERGED',
+    releases: [rel('r2', 'ACTIVE', 'ghcr.io/alice/hello-node:b'), rel('r1', 'SUPERSEDED', 'kairo/hello-node:a', t)],
+    pipelineRuns: [run],
+  };
+
+  it('picks the active release, the grace end, the PR and whether GHCR is watched', () => {
+    const dto = toAppDto(row, { graceMs: 60_000, storedImages: new Set(['ghcr.io/alice/hello-node:b']) });
+    assert.equal(dto.release.id, 'r2');
+    assert.equal(dto.release.graceEndsAt, '2026-11-11T12:01:00.000Z');
+    assert.deepEqual(dto.releases.map((r) => [r.status, r.imageStored]), [['ACTIVE', true], ['SUPERSEDED', false]]);
+    assert.equal(dto.pr.url, 'https://github.com/alice/hello-node/pull/1');
+    assert.equal(dto.watchingGhcr, true);
+    assert.equal(dto.pipeline.status, 'FAILED');
   });
 });
