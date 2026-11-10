@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ appName }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ appName }}
+    app.kubernetes.io/managed-by: kairo
+spec:
+  # Traefik is the only way in (FR-39). It answers on localhost:80, and the
+  # Cloudflare tunnel (P4) points at it with this Host header
+  ingressClassName: traefik
+  rules:
+    - host: {{ host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ appName }}
+                port:
+                  number: 80

@@ -7,10 +7,12 @@ metadata:
     app: {{ appName }}
     app.kubernetes.io/managed-by: kairo
 spec:
-  # NodePort for now; Kairo's Traefik Ingress takes over traffic later
-  type: NodePort
+  # cluster-internal only: all outside traffic comes in through Traefik's
+  # Ingress, so request metrics are always counted (FR-39)
+  type: ClusterIP
   selector:
     app: {{ appName }}
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: {{ port }}

@@ -6,6 +6,17 @@ export const REMEDIATION_ACTIONS = Object.freeze([
   'NONE',
 ]);
 
+// The five alert names: the contract between the generated Prometheus rules
+// (templates/prometheus) and remediation (decision.service.js). Not a
+// database enum, since Incident.alertName also records unknown alerts.
+export const ALERT_NAMES = Object.freeze([
+  'KairoAppDown',
+  'KairoOOMKilled',
+  'KairoCrashLoop',
+  'KairoHighCpu',
+  'KairoHighLatency',
+]);
+
 export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);

@@ -46,6 +46,14 @@ export const REMEDIATION_ACTIONS = Object.freeze([
   'NONE',
 ]);
 
+export const ALERT_NAMES = Object.freeze([
+  'KairoAppDown',
+  'KairoOOMKilled',
+  'KairoCrashLoop',
+  'KairoHighCpu',
+  'KairoHighLatency',
+]);
+
 export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);

@@ -57,6 +57,11 @@ describe('shared enums', () => {
     assert.deepEqual(frontendArrays, backendArrays);
   });
 
+  it('the remediation rules cover exactly the fixed alert names', async () => {
+    const { RULES } = await import('../../src/remediation/action/decision.service.js');
+    assert.deepEqual(Object.keys(RULES).sort(), [...types.ALERT_NAMES].sort());
+  });
+
   it('every in-progress status is a pipeline status', () => {
     for (const s of types.IN_PROGRESS_STATUSES) assert.ok(types.DEPLOYMENT_STATUSES.includes(s));
   });
