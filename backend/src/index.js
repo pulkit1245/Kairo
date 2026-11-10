@@ -1,6 +1,6 @@
 import { createApp } from './app.js';
 import { env } from './config/env.config.js';
-import { failInterruptedRuns } from './generator/pipeline.service.js';
+import { emptyWorkspace, failInterruptedRuns } from './generator/pipeline.service.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
 
@@ -14,6 +14,9 @@ async function main() {
     // most likely postgres isn't running. still start so /api/health can say so
     log.error('could not reach the database on startup', err);
   }
+
+  const leftovers = await emptyWorkspace();
+  if (leftovers > 0) log.warn(`removed ${leftovers} leftover clone folder(s) from the workspace`);
 
   const server = createApp().listen(env.port, () => {
     log.info(`kairo api listening on http://localhost:${env.port}`);

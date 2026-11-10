@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { failInterruptedRuns } from '../../src/generator/pipeline.service.js';
+import { failInterruptedRuns, toErrorLog } from '../../src/generator/pipeline.service.js';
 
 // a stand-in for prisma that keeps runs in an array
 function fakeDb(runs) {
@@ -40,5 +40,15 @@ describe('failInterruptedRuns', () => {
     assert.ok(runs[2].finishedAt instanceof Date);
     assert.equal(runs[3].failedStep, 'DETECTING');
     assert.equal(runs[3].errorLog, 'Unsupported project');
+  });
+});
+
+describe('toErrorLog', () => {
+  it('puts the reason on the first line and the log tail after it', () => {
+    assert.equal(toErrorLog('Build failed', ['step 1', 'npm ERR!']), 'Build failed\nstep 1\nnpm ERR!');
+  });
+
+  it('keeps a multi-line reason on one line', () => {
+    assert.equal(toErrorLog('a\n  b'), 'a b');
   });
 });

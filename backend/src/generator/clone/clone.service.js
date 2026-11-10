@@ -4,7 +4,7 @@ import { simpleGit, GitError } from 'simple-git';
 import { AppError } from '../../utils/AppError.js';
 
 // opts: { workspaceDir, timeoutMs }
-// clones into <workspaceDir>/<runId> and returns { dir, commitSha, branch }
+// clones into <workspaceDir>/<runId> and returns { dir, commitSha, branch, commitMessage }
 export async function cloneRepo(cloneUrl, runId, opts) {
   const dir = path.join(opts.workspaceDir, runId);
 
@@ -25,7 +25,9 @@ export async function cloneRepo(cloneUrl, runId, opts) {
   const commitSha = (await repo.revparse(['HEAD'])).trim();
   // a plain clone checks out the default branch, so this is its name
   const branch = (await repo.revparse(['--abbrev-ref', 'HEAD'])).trim();
-  return { dir, commitSha, branch };
+  // first line of the commit message, kept on the release
+  const commitMessage = (await repo.raw(['log', '-1', '--format=%s'])).trim() || null;
+  return { dir, commitSha, branch, commitMessage };
 }
 
 // Don't just spread process.env here. simple-git refuses to run at all if it

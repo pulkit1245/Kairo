@@ -45,7 +45,8 @@ export const STACKS = Object.freeze(['NODE', 'PYTHON']);
  * @property {string | null} failedStep   the step it was on when it failed
  * @property {string | null} stack        one of STACKS
  * @property {string | null} commitSha
- * @property {string | null} failureReason
+ * @property {string | null} failureReason  readable reason, one line
+ * @property {string[]} logTail           last build log lines when BUILDING failed, else []
  * @property {string | null} explanation  Gemini, P4
  * @property {string} startedAt           ISO date
  * @property {string | null} finishedAt   ISO date, null while running

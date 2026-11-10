@@ -21,7 +21,9 @@ export function toDeploymentDto(row) {
     failedStep: row.failedStep,
     stack: row.app.stack,
     commitSha: row.commitSha,
-    failureReason: row.errorLog,
+    // errorLog = reason on the first line, then the build log tail (pipeline.service.js)
+    failureReason: row.errorLog?.split('\n')[0] ?? null,
+    logTail: row.errorLog ? row.errorLog.split('\n').slice(1) : [],
     explanation: row.explanation,
     startedAt: row.startedAt.toISOString(),
     finishedAt: iso(row.finishedAt),
