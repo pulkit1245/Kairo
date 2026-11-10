@@ -1,6 +1,7 @@
 import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
+import { inGrace } from '../../shipping/grace.service.js';
 import { isRolloutInProgress } from '../../state/rollout.state.js';
 import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
@@ -31,6 +32,13 @@ async function openIncident(alert) {
   // same fingerprint + still open = same incident, don't act twice
   if (memory.isOpen(alert.fingerprint)) {
     log.debug(`${alert.alertName} for ${alert.appName} still firing`);
+    const entry = memory.getOpen(alert.fingerprint);
+    if (entry.deferred) {
+      // the newest pod name, for a restart after the window
+      if (alert.pod) entry.deferred.target = { ...entry.deferred.target, pod: alert.pod };
+      // the window ended without running it (e.g. the backend restarted): now
+      if (!inGrace(entry.slug)) await runDeferred(alert.fingerprint);
+    }
     return 'duplicate';
   }
 
@@ -43,6 +51,10 @@ async function openIncident(alert) {
   const { action, cause } = decideAction(alert.alertName, alert.summary);
   const target = { ...alert, namespace: alert.namespace ?? app.namespace };
 
+  // FR-71: during the grace window after a rollout, record the alert and
+  // defer its action; runDeferredActions() runs it if it still fires at the end
+  const defer = !isRolloutInProgress(app.slug) && inGrace(app.slug);
+
   // claim the fingerprint before acting, so a repeat arriving meanwhile is a duplicate
   const record = {
     slug: app.slug,
@@ -53,7 +65,14 @@ async function openIncident(alert) {
     startedAt: alert.startsAt,
     attempt: null,
   };
-  memory.markOpen(alert.fingerprint, record);
+  memory.markOpen(alert.fingerprint, record, defer ? { action, target } : null);
+
+  if (defer) {
+    log.info(`${alert.alertName} on ${app.slug} in its grace window: recorded, ${action} deferred until the window ends`);
+    const saved = await withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
+    if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
+    return 'opened';
+  }
 
   // 1. act
   const attemptedAt = new Date();
@@ -68,6 +87,38 @@ async function openIncident(alert) {
   if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
   // else: the record stays in memory as pending, for the resolve or the flush
   return 'opened';
+}
+
+// FR-71, at the end of an app's grace window (wired in src/index.js): every
+// alert that fired during it and is still open gets its normal action now.
+// One that resolved during the window stays recorded with no action.
+export async function runDeferredActions(slug) {
+  const fingerprints = memory.deferredFor(slug);
+  for (const fingerprint of fingerprints) await runDeferred(fingerprint);
+  return fingerprints.length;
+}
+
+async function runDeferred(fingerprint) {
+  const entry = memory.getOpen(fingerprint);
+  // a new rollout started meanwhile: it waits for that one's window instead
+  if (!entry?.deferred || isRolloutInProgress(entry.slug)) return;
+  const { action, target } = memory.takeDeferred(fingerprint);
+
+  // 1. act
+  const attemptedAt = new Date();
+  const outcome = await executeAction(action, target);
+  const attempt = { action, trigger: 'AUTO', dryRun: outcome.dryRun, result: outcome.result, attemptedAt };
+  log.info(`${target.alertName} on ${entry.slug} still firing after the grace window -> ${action} ${outcome.result} (${outcome.note})`);
+
+  // 2. record
+  if (entry.pending) {
+    entry.pending.attempt = attempt; // saved with the incident, by the resolve or the flush
+    return;
+  }
+  const saved = await withRetry(`record the deferred ${action} on ${entry.slug}`, () =>
+    prisma.remediationAttempt.create({ data: { incidentId: entry.incidentId, ...attempt }, select: { id: true } }),
+  );
+  if (saved === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
 }
 
 async function resolveIncident(alert) {
@@ -131,7 +182,9 @@ export async function flushUnsaved() {
     for (const item of memory.takeOutbox()) {
       try {
         if (item.kind === 'save') await createIncident(item.record, item.resolvedAt);
-        else await resolveRows(item.fingerprint, item.resolvedAt);
+        else if (item.kind === 'attempt') {
+          await prisma.remediationAttempt.create({ data: { incidentId: item.incidentId, ...item.attempt } });
+        } else await resolveRows(item.fingerprint, item.resolvedAt);
         saved++;
       } catch {
         memory.queueWrite(item);

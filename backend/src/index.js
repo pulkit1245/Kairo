@@ -8,7 +8,9 @@ import {
   flushUnsaved,
   hasOpenIncident,
   rebuildIncidentState,
+  runDeferredActions,
 } from './remediation/incident/incident.service.js';
+import { checkGhcr, WATCH_INTERVAL_MS } from './shipping/ghcr.watcher.js';
 import { configureGrace, rebuildGrace } from './shipping/grace.service.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
@@ -19,10 +21,15 @@ const log = createLogger('server');
 const PR_CHECK_MS = 60_000;
 
 async function main() {
-  // the grace window (shipping/) learns about alerts from remediation/ and
-  // hands healthy previews to the PR code in generator/, without the three
-  // packages importing each other
-  configureGrace({ isAlerting: hasOpenIncident, onHealthy: onPreviewHealthy, onUnhealthy: onPreviewUnhealthy });
+  // the grace window (shipping/) learns about alerts from remediation/, hands
+  // healthy previews to the PR code in generator/, and tells remediation/ to
+  // run the actions it deferred, without shipping/ importing either package
+  configureGrace({
+    isAlerting: hasOpenIncident,
+    onHealthy: onPreviewHealthy,
+    onUnhealthy: onPreviewUnhealthy,
+    onEnd: runDeferredActions,
+  });
 
   try {
     const stuck = await failInterruptedRuns();
@@ -53,6 +60,8 @@ async function main() {
   if (githubConfigured()) {
     resumePendingPrs().catch((err) => log.error('could not resume pending PRs', err));
     every('PR state check', PR_CHECK_MS, checkPrStates);
+    // FR-35: merged apps get every new commit's GHCR image
+    every('GHCR watcher', WATCH_INTERVAL_MS, checkGhcr);
   }
 
   // incident writes that failed during a database outage are saved once it's back (FR-74)

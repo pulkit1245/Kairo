@@ -8,8 +8,10 @@ import { createLogger } from '../utils/logger.js';
 // runs it and is ready, and no Kairo alert is open for the app. Only healthy
 // releases are rollback targets, and only a healthy preview gets a PR (FR-30).
 //
-// P2b: preview releases. P2c adds GHCR rollouts and defers alert actions
-// during the window (FR-37, FR-71).
+// Every rollout starts one: the preview (generator/pipeline.service.js) and
+// GHCR rollouts (rollout.service.js); P3's rollbacks will too. During the
+// window remediation records alerts for the app but defers their actions
+// (FR-37, FR-71); when it ends, onEnd runs the ones still firing.
 //
 // Windows live in memory (FR-74) and are rebuilt from the releases at boot.
 
@@ -24,10 +26,12 @@ const windows = new Map(); // slug -> { releaseId, endsAt, timer }
 //   isAlerting(slug) -> boolean          remediation's open incidents
 //   onHealthy(release, app)              e.g. open the setup PR
 //   onUnhealthy(release, app, reason)
+//   onEnd(slug)                          run the alert actions deferred during the window
 const hooks = {
   isAlerting: () => false,
   onHealthy: async () => {},
   onUnhealthy: async () => {},
+  onEnd: async () => {},
 };
 export function configureGrace(h) {
   Object.assign(hooks, h);
@@ -68,6 +72,16 @@ export async function endGrace(releaseId) {
   const { app } = release;
   if (windows.get(app.slug)?.releaseId === releaseId) windows.delete(app.slug);
 
+  // the verdict first: an alert still firing now keeps the release from being
+  // marked healthy (FR-72); then its deferred action runs (FR-71)
+  const verdict = await judge(release, app);
+  if (!inGrace(app.slug)) {
+    await hooks.onEnd(app.slug).catch((err) => log.error(`deferred actions for ${app.slug} failed`, err));
+  }
+  return verdict;
+}
+
+async function judge(release, app) {
   if (release.healthyAt) {
     await hooks.onHealthy(release, app);
     return { healthy: true };
