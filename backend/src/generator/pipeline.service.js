@@ -1,6 +1,5 @@
 import { env } from '../config/env.config.js';
 import { prisma } from '../db/index.js';
-import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
 import { createLogger } from '../utils/logger.js';
 import { cloneUrlFor } from '../utils/repoUrl.js';
@@ -53,27 +52,48 @@ export async function runPipeline(runId) {
     // TODO(P1): BUILDING  -> docker build with Docker Desktop's engine (the cluster sees local images)
     //           DEPLOYING -> apply the manifests with the k8s client
     //           RUNNING   -> once the rollout is ready
-    // until then the run just stops at GENERATING with its files saved
+    // until then the run stops at GENERATING with its files saved. finishedAt
+    // is what says "this run is over", so a restart leaves it alone (FR-7)
+    await finish(runId);
     log.info(`${app.slug}: files ready in ${Date.now() - started}ms`);
   } catch (err) {
     const reason = err instanceof AppError ? err.message : `Unexpected error: ${errorMessage(err)}`;
     log.warn(`${app.slug}: failed at ${step} - ${reason}`);
     if (!(err instanceof AppError)) log.error('pipeline crashed', err);
 
-    await moveTo(runId, 'FAILED', { failedStep: step, errorLog: reason });
+    await moveTo(runId, 'FAILED', { failedStep: step, errorLog: reason, finishedAt: new Date() });
   }
+}
+
+function finish(id) {
+  return prisma.pipelineRun.update({ where: { id }, data: { finishedAt: new Date() } });
 }
 
 function moveTo(id, status, extra = {}) {
   return prisma.pipelineRun.update({ where: { id }, data: { ...extra, status } });
 }
 
-// If the server dies halfway through a pipeline the row stays in CLONING etc.
-// forever and the stepper on the frontend spins forever. Clean those up on boot.
-export async function failInterruptedRuns() {
-  const { count } = await prisma.pipelineRun.updateMany({
-    where: { status: { in: [...IN_PROGRESS_STATUSES] } },
-    data: { status: 'FAILED', errorLog: 'Interrupted - the backend restarted mid-deploy' },
+// If the server dies halfway through a pipeline the row never gets a finishedAt
+// and the stepper on the frontend spins forever. Clean those up on boot.
+// Only finishedAt decides: a run that stopped at GENERATING (the last step in P0)
+// is finished, not interrupted. db is a parameter so the unit test can fake it
+export async function failInterruptedRuns(db = prisma) {
+  const stuck = await db.pipelineRun.findMany({
+    where: { finishedAt: null },
+    select: { id: true, status: true },
   });
-  return count;
+
+  const now = new Date();
+  for (const run of stuck) {
+    await db.pipelineRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'FAILED',
+        failedStep: run.status,
+        errorLog: 'Interrupted - the backend restarted mid-deploy',
+        finishedAt: now,
+      },
+    });
+  }
+  return stuck.length;
 }
