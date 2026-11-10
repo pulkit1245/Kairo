@@ -3,6 +3,13 @@
 
 server:
   retention: "${retention}"
+  # app alert rules written by the backend, one file per app (P1)
+  extraConfigmapMounts:
+    - name: kairo-alert-rules
+      mountPath: /etc/kairo-rules
+      subPath: ""
+      configMap: ${rules_configmap}
+      readOnly: true
   # 1 day of data isn't worth a volume. emptyDir also means terraform destroy
   # leaves no PersistentVolumeClaims behind
   persistentVolume:
@@ -18,6 +25,27 @@ server:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+# The chart's own rule files plus the app rules from the ConfigMap above
+serverFiles:
+  prometheus.yml:
+    rule_files:
+      - /etc/config/recording_rules.yml
+      - /etc/config/alerting_rules.yml
+      - /etc/kairo-rules/*.yml
+
+# The reloader watches the app rules too, so a new app's rules load within
+# about a minute (kubelet's ConfigMap sync) without restarting Prometheus
+configmapReload:
+  prometheus:
+    extraConfigmapMounts:
+      - name: kairo-alert-rules
+        mountPath: /etc/kairo-rules
+        subPath: ""
+        configMap: ${rules_configmap}
+        readOnly: true
+    extraVolumeDirs:
+      - /etc/kairo-rules
 
 # Keep only what Kairo reads: kubelet resource metrics (pod CPU and memory),
 # kube-state-metrics (restarts, OOMKilled, replicas) and Traefik (requests)

@@ -10,7 +10,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "prom:forward": "kubectl --context docker-desktop -n monitoring port-forward svc/prometheus-server 9090:80"
   },
   "dependencies": {
     "@kubernetes/client-node": "^1.1.3",

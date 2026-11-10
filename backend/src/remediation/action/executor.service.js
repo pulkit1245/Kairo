@@ -40,7 +40,11 @@ async function restartPod(alert, dryRun) {
     return { result: 'SKIPPED', dryRun, note: 'alert has no pod label, nothing to restart' };
   }
 
-  const namespace = alert.namespace ?? env.kubeNamespace;
+  // every app has its own namespace (FR-29) and the generated rules carry it
+  if (!alert.namespace) {
+    return { result: 'SKIPPED', dryRun, note: 'alert has no namespace label' };
+  }
+  const namespace = alert.namespace;
   try {
     await deletePod(namespace, alert.pod);
     log.info(`restarted ${namespace}/${alert.pod}`);

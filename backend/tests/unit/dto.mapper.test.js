@@ -26,6 +26,7 @@ describe('toDeploymentDto', () => {
     assert.equal(dto.stack, 'NODE');
     assert.equal(dto.failedStep, 'DETECTING');
     assert.equal(dto.failureReason, 'Unsupported project');
+    assert.deepEqual(dto.logTail, []);
     assert.equal(dto.finishedAt, '2026-11-10T10:00:05.000Z');
     // the list view doesn't load files, so no configs key at all
     assert.equal('configs' in dto, false);
@@ -38,6 +39,12 @@ describe('toDeploymentDto', () => {
     ];
     const dto = toDeploymentDto({ ...run, files });
     assert.deepEqual(dto.configs.map((c) => c.kind), ['DOCKERFILE', 'SERVICE']);
+  });
+
+  it('splits a build failure into the reason and the log tail', () => {
+    const dto = toDeploymentDto({ ...run, errorLog: 'Build failed (docker exited with code 1)\n#5 RUN npm ci\nnpm ERR! missing script' });
+    assert.equal(dto.failureReason, 'Build failed (docker exited with code 1)');
+    assert.deepEqual(dto.logTail, ['#5 RUN npm ci', 'npm ERR! missing script']);
   });
 
   it('keeps finishedAt null while running', () => {

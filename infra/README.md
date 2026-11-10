@@ -47,7 +47,7 @@ It installs, into the `docker-desktop` context only:
 
 | Namespace | What runs there |
 | --- | --- |
-| `kairo` | The `kairo-platform` service account (`infra/rbac/`), bound to a ClusterRole with the FR-68 verbs |
+| `kairo` | The `kairo-platform` service account (`infra/rbac/`), bound to a ClusterRole with the FR-68 verbs, and its long-lived token |
 | `traefik` | Traefik 3 (chart `traefik/traefik` 42.1.3), a LoadBalancer on `localhost:80`, default ingress class, Prometheus metrics on :9100 |
 | `monitoring` | Prometheus with 1-day retention, Alertmanager and kube-state-metrics (chart `prometheus-community/prometheus` 29.37.2). No Grafana, no node-exporter, no pushgateway |
 
@@ -62,6 +62,22 @@ kubectl -n monitoring port-forward svc/prometheus-server 9090:80
 ```
 
 Remove everything with `terraform plan -destroy -out=destroy.tfplan` and `terraform apply destroy.tfplan`. Nothing is left behind: Prometheus and Alertmanager use `emptyDir`, so there are no volume claims, and Traefik is installed without its CRDs (`skip_crds`), which Helm would otherwise leave behind on uninstall.
+
+### Backend credentials (P1)
+
+The backend talks to the cluster as the `kairo-platform` service account, not as admin, so the RBAC limits really apply. Terraform creates a long-lived token for it (Secret `kairo/kairo-platform-token`, type `kubernetes.io/service-account-token`, which doesn't expire). The script below turns it into a kubeconfig without printing the token:
+
+```bash
+infra/scripts/kairo-kubeconfig.sh          # writes ~/.kube/kairo-platform.yaml (mode 600)
+```
+
+Then set `KUBECONFIG=$HOME/.kube/kairo-platform.yaml` in `backend/.env`. Run the script again after a cluster reset or a destroy and apply, because both create a new token. The token is also in the local Terraform state, which is gitignored.
+
+The port-forward to Prometheus uses your own kubeconfig: `npm run prom:forward` in `backend/`.
+
+### App alert rules (P1)
+
+Terraform creates an empty ConfigMap `monitoring/kairo-alert-rules`. The backend writes one key per app (`<slug>.rules.yml`) when it deploys the app. Prometheus mounts the ConfigMap at `/etc/kairo-rules`, loads `*.yml` from it, and its config reloader picks up changes within about a minute. `kairo-platform` may only `get` and `patch` this one ConfigMap.
 
 ### Checks
 

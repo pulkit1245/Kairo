@@ -28,6 +28,7 @@ export const env = {
   workspaceDir: process.env.WORKSPACE_DIR || path.join(os.tmpdir(), 'kairo-workspace'),
   cloneTimeoutMs: Number(process.env.CLONE_TIMEOUT_MS) || 60_000,
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  kubeNamespace: process.env.KUBE_NAMESPACE || 'kairo-apps',
   remediationDryRun: bool('REMEDIATION_DRY_RUN', true),
+  // shared with Alertmanager (FR-45). Never logged
+  alertWebhookToken: process.env.ALERT_WEBHOOK_TOKEN || null,
 };

@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { duration, relativeTime, repoName, shortSha } from '../common/format.js';
 import { stackLabel, runStatus } from '../common/status.js';
 import { StatusBadge } from '../common/StatusBadge.jsx';
@@ -24,7 +25,9 @@ export function DeploymentTable({ deployments }) {
           {deployments.map((d) => (
             <tr key={d.id} className="hover:bg-surface-container">
               <td className={td}>
-                <div className="font-medium">{d.appName}</div>
+                <Link to={`/deployments/${d.id}`} className="font-medium hover:text-primary hover:underline">
+                  {d.appName}
+                </Link>
                 <a
                   href={d.repoUrl.replace(/\.git$/, '')}
                   target="_blank"

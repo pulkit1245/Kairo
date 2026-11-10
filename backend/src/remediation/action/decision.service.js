@@ -1,7 +1,7 @@
 // Alert names here MUST match the alert rules we generate for Prometheus
 // (templates/prometheus, phase 2). Keep the two lists in sync.
 
-const RULES = {
+export const RULES = {
   // liveness keeps failing / pod not ready -> kill it and let the ReplicaSet make a new one
   KairoAppDown: { action: 'RESTART', cause: 'App stopped responding to health checks' },
   KairoOOMKilled: { action: 'RESTART', cause: 'Container went over its memory limit' },

@@ -37,6 +37,12 @@ export const getHealth = () => request('/health');
 
 // a "deployment" is one pipeline run (see backend/src/types/deployment.types.js)
 export const listDeployments = () => request('/deployments');
+export const createDeployment = (repoUrl) =>
+  request('/deployments', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ repoUrl }),
+  });
 export const getDeployment = (id) => request(`/deployments/${encodeURIComponent(id)}`);
 
 export const listIncidents = () => request('/incidents');

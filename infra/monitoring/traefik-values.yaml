@@ -7,6 +7,10 @@ ingressClass:
 ports:
   web:
     exposedPort: 80 # http://<slug>.kairo.local on the Mac
+    http:
+      # drop headers like X_Auth_User: WSGI apps (our Python stack) would read
+      # them as X-Auth-User, so a visitor could spoof headers (found in P0)
+      aliasHeadersStrategy: delete
   websecure:
     expose:
       default: false # no TLS locally; Cloudflare's tunnel gives the public https link

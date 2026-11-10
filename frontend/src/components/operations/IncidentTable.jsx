@@ -8,6 +8,7 @@ const td = 'px-4 py-3 align-top';
 
 // one line per action Kairo took, e.g. "Restart · Skipped (dry run)"
 function Attempts({ attempts }) {
+  // a record can still be on its way (act first, record second, FR-74)
   if (attempts.length === 0) return <span className="text-on-surface-variant">—</span>;
   return (
     <ul className="flex flex-col gap-1">
@@ -45,7 +46,10 @@ export function IncidentTable({ incidents }) {
         </thead>
         <tbody className="divide-y divide-outline-variant">
           {incidents.map((i) => (
-            <tr key={i.id} className="hover:bg-surface-container">
+            <tr
+              key={i.id}
+              className={`hover:bg-surface-container ${i.status === 'OPEN' ? 'bg-warning/5 shadow-[inset_3px_0_0_var(--color-warning)]' : ''}`}
+            >
               <td className={`${td} font-medium`}>{i.appName}</td>
               <td className={td}>
                 <div className="font-mono text-code-md">{i.alertName}</div>

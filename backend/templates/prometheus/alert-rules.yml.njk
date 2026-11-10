@@ -1,0 +1,60 @@
+# Kairo alert rules for {{ appName }} (FR-44). Prometheus loads this from the
+# ConfigMap monitoring/kairo-alert-rules. The names are fixed: remediation maps
+# each one to an action (src/remediation/action/decision.service.js).
+# Every alert carries the app label; pod and namespace come from the series.
+groups:
+  - name: kairo-{{ appName }}
+    rules:
+      # a pod that is running but failing its readiness probe
+      - alert: KairoAppDown
+        expr: |
+          (kube_pod_status_ready{namespace="{{ namespace }}", condition="true"} == 0)
+          and on (namespace, pod)
+          (kube_pod_status_phase{namespace="{{ namespace }}", phase="Running"} == 1)
+        for: 1m
+        labels:
+          app: {{ appName }}
+        annotations:
+          summary: "{{ appName }} is not answering its health check"
+
+      # restarted in the last 5 minutes, and the last exit was the memory limit
+      - alert: KairoOOMKilled
+        expr: |
+          (increase(kube_pod_container_status_restarts_total{namespace="{{ namespace }}", container="{{ appName }}"}[5m]) > 0)
+          and on (namespace, pod, container)
+          (kube_pod_container_status_last_terminated_reason{namespace="{{ namespace }}", container="{{ appName }}", reason="OOMKilled"} == 1)
+        for: 0s
+        labels:
+          app: {{ appName }}
+        annotations:
+          summary: "{{ appName }} went over its {{ memoryLimit }} memory limit"
+
+      - alert: KairoCrashLoop
+        expr: |
+          kube_pod_container_status_waiting_reason{namespace="{{ namespace }}", container="{{ appName }}", reason="CrashLoopBackOff"} == 1
+        for: 1m
+        labels:
+          app: {{ appName }}
+        annotations:
+          summary: "{{ appName }} keeps crashing on startup"
+
+      # share of the {{ cpuLimit }} CPU limit, per pod
+      - alert: KairoHighCpu
+        expr: |
+          sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace="{{ namespace }}", container="{{ appName }}"}[1m])) / {{ cpuLimitCores }} > 0.8
+        for: 1m
+        labels:
+          app: {{ appName }}
+        annotations:
+          summary: "{{ appName }} is using over 80% of its CPU limit"
+
+      # 95th percentile through Traefik. No traffic gives no value, so no alert
+      - alert: KairoHighLatency
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=~"{{ namespace }}-{{ appName }}-.*"}[2m]))) > 1
+        for: 2m
+        labels:
+          app: {{ appName }}
+          namespace: {{ namespace }}
+        annotations:
+          summary: "{{ appName }} answers slower than 1 s (p95)"
