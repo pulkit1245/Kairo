@@ -151,10 +151,12 @@ async function detectNode(dir, facts, assumptions, { needStart }) {
   if (scripts.start) {
     startCommand = ['npm', 'start'];
     facts.startCommand = rule('npm start', 'scripts.start in package.json');
-  } else if (pkg.main) {
+  } else if (pkg.main && (await exists(dir, pkg.main))) {
     startCommand = ['node', pkg.main];
     facts.startCommand = rule(`node ${pkg.main}`, 'main in package.json');
   } else {
+    // a main that names a missing file isn't a start command: `node` would
+    // exit at once and the preview would crash-loop for 3 minutes
     for (const file of NODE_ENTRYPOINTS) {
       if (await exists(dir, file)) {
         startCommand = ['node', file];
@@ -164,7 +166,8 @@ async function detectNode(dir, facts, assumptions, { needStart }) {
     }
   }
   if (!startCommand && needStart) {
-    throw new AppError('Node project has no "start" script, no "main" field and no index.js or server.js');
+    const main = pkg.main ? `a "main" field (${pkg.main}) that isn't in the repo` : 'no "main" field';
+    throw new AppError(`Node project has no "start" script, ${main}, and no index.js or server.js`);
   }
 
   facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');

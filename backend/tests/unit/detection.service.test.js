@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -27,8 +27,23 @@ describe('detectStack', () => {
 
   it('falls back to the main field', async () => {
     await put('package.json', JSON.stringify({ main: 'src/app.js' }));
+    await mkdir(path.join(dir, 'src'));
+    await put('src/app.js');
     const result = await detectStack(dir);
     assert.deepEqual(result.startCommand, ['node', 'src/app.js']);
+  });
+
+  it('skips a main that names a missing file, then tries index.js', async () => {
+    await put('package.json', JSON.stringify({ main: 'lib/missing.js' }));
+    await put('index.js');
+    const result = await detectStack(dir);
+    assert.deepEqual(result.startCommand, ['node', 'index.js']);
+    assert.equal(result.facts.startCommand.from, 'index.js in the repo root');
+  });
+
+  it('says so when main names a missing file and nothing else starts it', async () => {
+    await put('package.json', JSON.stringify({ main: 'index.js' }));
+    await assert.rejects(detectStack(dir), /"main" field \(index\.js\) that isn't in the repo/);
   });
 
   it('rejects a node project it cannot start', async () => {
