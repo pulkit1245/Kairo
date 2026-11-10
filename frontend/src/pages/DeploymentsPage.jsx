@@ -1,3 +1,4 @@
+import { AddRepoForm } from '../components/onboarding/AddRepoForm.jsx';
 import { DeploymentTable } from '../components/onboarding/DeploymentTable.jsx';
 import { PageHeader } from '../components/common/PageHeader.jsx';
 import { Panel, PanelMessage } from '../components/common/Panel.jsx';
@@ -26,13 +27,15 @@ export function DeploymentsPage() {
           )
         }
       />
+      <div className="mb-6">
+        <AddRepoForm />
+      </div>
       <Panel title="Pipeline runs" meta={data && `latest ${data.length} · refreshes every 5 s`}>
         {loading && <PanelMessage>Loading…</PanelMessage>}
         {error && !data && <PanelMessage tone="bad">{error.message}</PanelMessage>}
         {data?.length === 0 && (
           <PanelMessage>
-            No pipeline runs yet. Until the repo picker arrives in P2, start one with{' '}
-            <code className="font-mono text-code-md">POST /api/deployments</code>.
+            No pipeline runs yet. Paste a repo URL above to start one.
           </PanelMessage>
         )}
         {data?.length > 0 && <DeploymentTable deployments={data} />}
