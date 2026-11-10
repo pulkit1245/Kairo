@@ -4,7 +4,79 @@ All endpoints are under `/api` on the backend (`http://localhost:4000`) and retu
 
 The enum values below are fixed. They live in `backend/src/types/`, the Prisma schema and `frontend/src/types/enums.js`, and a test keeps the three equal.
 
-State as of P1. Sign-in (P2) and the app, metrics, logs, rollback, test panel and delete endpoints (P2, P3) aren't here yet.
+State as of P2a. The app page, PR, metrics, logs, rollback, test panel and delete endpoints (P2b, P2c, P3) aren't here yet.
+
+## Sign-in (FR-1, FR-2, FR-42)
+
+Every endpoint needs a signed-in user whose GitHub login is in `ALLOWED_GITHUB_LOGINS`, except `POST /api/alerts` (bearer token) and `/api/auth/*`. Without one: `401 { "error": "Sign in first" }`.
+
+The session is an httpOnly, `SameSite=Lax` cookie, `kairo_session`, signed with `SESSION_SECRET` and valid for 12 hours. It holds the user's id and login, nothing from GitHub. The allow-list is checked again on every request, so removing a login signs that person out at once.
+
+| Method and path | What it does |
+| --- | --- |
+| `GET /api/auth/login` | 302 to GitHub's sign-in page for the Kairo GitHub App, with a one-time `state` cookie |
+| `GET /api/auth/callback` | Where GitHub sends the browser back, after sign-in and after installing the App. 302 to `/` (signed in), `/apps/new` (after an install), `/not-invited?login=<login>` (not on the allow-list) or `/signin?error=<reason>` |
+| `GET /api/auth/install` | 302 to the App's install page, which also changes which repos an existing installation sees. Signed in only |
+| `GET /api/auth/me` | The signed-in user, or 401 |
+| `POST /api/auth/logout` | 204, clears the cookie |
+
+`GET /api/auth/me`:
+
+```json
+{
+  "login": "PunitXd",
+  "avatarUrl": "https://avatars.githubusercontent.com/u/1?v=4",
+  "installUrl": "/api/auth/install",
+  "installations": [{ "id": "cm...", "accountLogin": "PunitXd" }]
+}
+```
+
+`/signin?error=` reasons: `not-configured` (GitHub App settings or `SESSION_SECRET` missing), `cancelled`, `no-code`, `state` (expired or started in another tab), `github` (GitHub didn't answer), `sign-in-first` (an install return without a session), `account-mismatch` (GitHub came back as another account).
+
+GitHub's user token is used only inside the callback (who are you, which installations can you reach) and then revoked. Installation tokens are minted for each request and never stored, logged or sent to the browser (FR-5).
+
+## GET /api/repos
+
+The repo picker (FR-3, FR-6): every repo the user's installations can see, newest push first.
+
+```json
+{
+  "installations": [{ "id": "cm...", "accountLogin": "PunitXd", "repoCount": 4 }],
+  "repos": [
+    {
+      "fullName": "PunitXd/kairo-node-sample",
+      "private": false,
+      "defaultBranch": "main",
+      "pushedAt": "2026-11-10T09:12:00Z",
+      "htmlUrl": "https://github.com/PunitXd/kairo-node-sample",
+      "installationId": "cm...",
+      "disabledReason": null,
+      "app": { "id": "cm...", "slug": "kairo-node-sample" }
+    }
+  ],
+  "limit": { "running": 2, "max": 3 }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `disabledReason` | `"Private repos aren't supported yet"` for private repos, else `null` |
+| `app` | The Kairo app this repo already is, else `null` |
+| `limit.running` | Apps that count against the limit (FR-9); `null` if the cluster can't be reached |
+
+An installation that was removed on GitHub is marked suspended and left out. `502` if GitHub doesn't answer.
+
+## POST /api/apps
+
+Starts onboarding from a picked repo (FR-3). Body `{ "repoFullName": "owner/repo" }`. `202` with a [Deployment](#deployment), the same as `POST /api/deployments`. A repo that is already an app gets a new run.
+
+| Status | When |
+| --- | --- |
+| `400` | `repoFullName` isn't `owner/repo`, or the repo is private |
+| `404` | None of your installations can see the repo |
+| `409` | Limit of 3 running apps reached (FR-9) |
+| `502` | GitHub didn't answer |
+| `503` | The cluster can't be reached, so the limit can't be checked |
 
 ## GET /api/health
 
@@ -17,6 +89,8 @@ State as of P1. Sign-in (P2) and the app, metrics, logs, rollback, test panel an
 **Changed in P1:** added `dryRun`.
 
 ## POST /api/deployments
+
+**Since P2:** a testing shortcut, behind sign-in and hidden from the UI (AQ10). The UI onboards through `POST /api/apps`.
 
 Starts onboarding for a public GitHub repo. Returns `202` with a Deployment straight away; the pipeline runs in the background.
 
@@ -51,6 +125,8 @@ A "deployment" is one pipeline run plus a few fields from its app.
   "id": "cmwak1al20001sa8as8n96zay",
   "appId": "cmwajzqex0003sazk5mt2kra8",
   "repoUrl": "https://github.com/heroku/node-js-getting-started.git",
+  "repoFullName": "heroku/node-js-getting-started",
+  "installed": false,
   "appName": "node-js-getting-started",
   "status": "GENERATING",
   "failedStep": null,
@@ -71,6 +147,7 @@ A "deployment" is one pipeline run plus a few fields from its app.
 | --- | --- |
 | `id` | The pipeline run's id |
 | `appName` | The app's slug: its Kubernetes name and the `app` label on its alerts |
+| `installed` | `true` when the app was picked from a GitHub App installation (`POST /api/apps`), `false` for the URL shortcut. Retry uses the same route |
 | `status` | `CLONING`, `DETECTING`, `GENERATING`, `BUILDING`, `DEPLOYING`, `RUNNING` or `FAILED` |
 | `failedStep` | The step it was on when it failed, else `null` |
 | `stack` | `NODE`, `PYTHON` or `null` before detection |
