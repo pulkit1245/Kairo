@@ -2,6 +2,22 @@
 # The plain prometheus chart, not kube-prometheus-stack: no operator and no
 # Grafana, which matters inside a 5 GB VM.
 
+# Each app's alert rules, one key per app (<slug>.rules.yml), written by the
+# backend at deploy time (AQ6). Prometheus mounts this and reloads on change.
+# Terraform only creates it: the backend owns the data, so changes are ignored.
+resource "kubernetes_config_map_v1" "alert_rules" {
+  metadata {
+    name      = "kairo-alert-rules"
+    namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+    labels    = local.labels
+  }
+  data = {}
+
+  lifecycle {
+    ignore_changes = [data]
+  }
+}
+
 resource "helm_release" "prometheus" {
   name       = "prometheus"
   namespace  = kubernetes_namespace_v1.monitoring.metadata[0].name
@@ -11,7 +27,8 @@ resource "helm_release" "prometheus" {
 
   values = [
     templatefile("${path.module}/../monitoring/prometheus/values.yaml", {
-      retention = var.prometheus_retention
+      retention       = var.prometheus_retention
+      rules_configmap = kubernetes_config_map_v1.alert_rules.metadata[0].name
     }),
     templatefile("${path.module}/../monitoring/alertmanager/values.yaml", {
       webhook_url = var.alert_webhook_url
