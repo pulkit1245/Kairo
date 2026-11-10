@@ -11,6 +11,7 @@ import {
   waitForRollout,
 } from '../kubernetes/k8s.client.js';
 import { startGrace } from '../shipping/grace.service.js';
+import { pruneImages } from '../shipping/prune.service.js';
 import { beginRollout, endRollout } from '../state/rollout.state.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
@@ -136,6 +137,8 @@ export async function runPipeline(runId) {
     // end the release is marked healthy or not, and a healthy preview of a
     // picked repo gets its PR (FR-30, generator/pr via the hook in src/index.js)
     startGrace(release, { ...app, namespace });
+    // FR-38: only the last 3 releases keep their image
+    await pruneImages(app.id);
 
     await moveTo(runId, 'RUNNING', { finishedAt: new Date() });
     log.info(`${app.slug}: RUNNING in ${Math.round((Date.now() - started) / 1000)} s`);

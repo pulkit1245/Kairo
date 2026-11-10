@@ -193,6 +193,28 @@ export async function listRunningApps() {
     .map((d) => ({ namespace: d.metadata.namespace, name: d.metadata.name }));
 }
 
+// A GHCR rollout (FR-36): only the container image changes. A strategic merge
+// patch matches the container by name and leaves every other field alone. Its
+// own field manager, so the next server-side apply by the pipeline (Deploy
+// again) takes the field back without a conflict.
+export async function setImage(namespace, name, image) {
+  await call((c) =>
+    k8s.KubernetesObjectApi.makeApiClient(c).patch(
+      {
+        apiVersion: 'apps/v1',
+        kind: 'Deployment',
+        metadata: { name, namespace },
+        spec: { template: { spec: { containers: [{ name, image }] } } },
+      },
+      undefined,
+      undefined,
+      'kairo-rollout',
+      undefined,
+      k8s.PatchStrategy.StrategicMergePatch,
+    ),
+  );
+}
+
 // Each app's alert rules are one key in monitoring/kairo-alert-rules (AQ6).
 // A merge patch only touches this app's key.
 export const ALERT_RULES_CONFIGMAP = { namespace: 'monitoring', name: 'kairo-alert-rules' };

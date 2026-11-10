@@ -141,6 +141,13 @@ export async function getInstallationRepo(githubInstallationId, owner, repo) {
   }
 }
 
+// The newest commit on a branch, for the GHCR watcher (FR-35)
+/** @returns {Promise<{ sha: string, message: string }>} */
+export async function getBranchHead(githubInstallationId, owner, repo, branch) {
+  const { data } = await installationClient(githubInstallationId).rest.repos.getBranch({ owner, repo, branch });
+  return { sha: data.commit.sha, message: data.commit.commit.message.split('\n')[0] };
+}
+
 function toRepo(r) {
   return {
     fullName: r.full_name,
