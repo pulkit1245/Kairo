@@ -215,6 +215,62 @@ export async function setImage(namespace, name, image) {
   );
 }
 
+// The image and replica count the Deployment asks for right now
+/** @returns {Promise<{ image: string | null, replicas: number }>} */
+export async function deploymentSpec(namespace, name) {
+  const d = await call((c) => c.makeApiClient(k8s.AppsV1Api).readNamespacedDeployment({ name, namespace }));
+  return {
+    image: d.spec?.template?.spec?.containers?.find((c) => c.name === name)?.image ?? null,
+    replicas: d.spec?.replicas ?? 1,
+  };
+}
+
+// Scaling (FR-46, FR-47): only spec.replicas changes, with its own field
+// manager, like setImage. A later Deploy again sets it back to 1
+export async function scaleDeployment(namespace, name, replicas) {
+  await call((c) =>
+    k8s.KubernetesObjectApi.makeApiClient(c).patch(
+      { apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name, namespace }, spec: { replicas } },
+      undefined,
+      undefined,
+      'kairo-heal',
+      undefined,
+      k8s.PatchStrategy.StrategicMergePatch,
+    ),
+  );
+}
+
+// The app's pods, newest first, without those already being deleted
+export async function listAppPods(namespace, app) {
+  const pods = await call((c) =>
+    c.makeApiClient(k8s.CoreV1Api).listNamespacedPod({ namespace, labelSelector: `app=${app}` }),
+  );
+  return pods.items
+    .filter((p) => !p.metadata?.deletionTimestamp)
+    .sort((a, b) => new Date(b.metadata.creationTimestamp) - new Date(a.metadata.creationTimestamp))
+    .map((p) => p.metadata.name);
+}
+
+/**
+ * FR-73: did an action take effect? Every desired replica is up to date and
+ * ready, and, when given: the Deployment runs `image`, asks for `replicas`,
+ * and pod `gone` no longer exists (a restart).
+ * @returns {Promise<{ done: boolean, detail?: string }>}
+ */
+export async function actionTookEffect(namespace, name, { image, replicas, gone } = {}) {
+  const d = await call((c) => c.makeApiClient(k8s.AppsV1Api).readNamespacedDeployment({ name, namespace }));
+  const want = d.spec?.replicas ?? 1;
+  const s = d.status ?? {};
+  const running = d.spec?.template?.spec?.containers?.find((c) => c.name === name)?.image;
+  if (image && running !== image) return { done: false, detail: `the Deployment runs ${running ?? 'nothing'}, not ${image}` };
+  if (replicas !== undefined && want !== replicas) return { done: false, detail: `the Deployment asks for ${want} replicas, not ${replicas}` };
+  if ((s.observedGeneration ?? 0) < (d.metadata?.generation ?? 1)) return { done: false, detail: 'the change is not picked up yet' };
+  const ready = (s.readyReplicas ?? 0) === want && (s.updatedReplicas ?? 0) === want && (s.replicas ?? 0) === want;
+  if (!ready) return { done: false, detail: (await podTrouble(namespace, name)) ?? `${s.readyReplicas ?? 0} of ${want} replicas ready` };
+  if (gone && (await listAppPods(namespace, name)).includes(gone)) return { done: false, detail: `pod ${gone} is still there` };
+  return { done: true };
+}
+
 // Each app's alert rules are one key in monitoring/kairo-alert-rules (AQ6).
 // A merge patch only touches this app's key.
 export const ALERT_RULES_CONFIGMAP = { namespace: 'monitoring', name: 'kairo-alert-rules' };

@@ -27,7 +27,7 @@ const windows = new Map();
 
 // Wired in src/index.js, so shipping/ doesn't import remediation/ or generator/:
 //   isAlerting(slug) -> boolean          remediation's open incidents
-//   onHealthy(release, app)              e.g. open the setup PR
+//   onHealthy(release, app, { newlyMarked })  e.g. open the setup PR
 //   onUnhealthy(release, app, reason)
 //   onEnd(slug)                          run the alert actions deferred during the window
 // and releaseReady, the Kubernetes check, replaceable so a unit test needs no cluster
@@ -107,7 +107,7 @@ export async function endGrace(releaseId) {
 
 async function judge(release, app, blockedBy) {
   if (release.healthyAt) {
-    await hooks.onHealthy(release, app);
+    await hooks.onHealthy(release, app, { newlyMarked: false });
     return { healthy: true };
   }
   const verdict = await checkHealthy(release, app, blockedBy);
@@ -119,7 +119,7 @@ async function judge(release, app, blockedBy) {
     });
     if (marked.count) {
       log.info(`${app.slug}: release ${release.commitSha.slice(0, 7)} is healthy`);
-      await hooks.onHealthy({ ...release, healthyAt: new Date() }, app);
+      await hooks.onHealthy({ ...release, healthyAt: new Date() }, app, { newlyMarked: true });
       return { healthy: true };
     }
     verdict.healthy = false;

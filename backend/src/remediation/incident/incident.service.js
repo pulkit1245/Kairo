@@ -1,4 +1,3 @@
-import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
 import { inGrace, noteAlert } from '../../shipping/grace.service.js';
@@ -6,7 +5,7 @@ import { isRolloutInProgress } from '../../state/rollout.state.js';
 import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
 import { decideAction } from '../action/decision.service.js';
-import { executeAction } from '../action/executor.service.js';
+import { heal } from '../healing/heal.service.js';
 import * as memory from './incident.state.js';
 
 const log = createLogger('incidents');
@@ -49,7 +48,8 @@ async function openIncident(alert) {
   }
 
   const { action, cause } = decideAction(alert.alertName, alert.summary);
-  const target = { ...alert, namespace: alert.namespace ?? app.namespace };
+  // what an action needs: the app and the pod the alert named
+  const target = { alertName: alert.alertName, pod: alert.pod ?? null };
 
   // FR-72: an OOM kill or crash loop inside a grace window rules the release out
   if (noteAlert(app.slug, alert.alertName)) log.info(`${alert.alertName} on ${app.slug} in its grace window: the release won't be marked healthy`);
@@ -78,16 +78,15 @@ async function openIncident(alert) {
     return 'opened';
   }
 
-  // 1. act
-  const attemptedAt = new Date();
-  const outcome = isRolloutInProgress(app.slug)
-    ? { result: 'SKIPPED', dryRun: env.remediationDryRun, note: 'app is mid-rollout' }
-    : await executeAction(action, target);
-  record.attempt = { action, trigger: 'AUTO', dryRun: outcome.dryRun, result: outcome.result, attemptedAt };
-  log.info(`${alert.alertName} on ${app.slug} -> ${action} ${outcome.result} (${outcome.note})`);
+  // 1. act (heal.service.js decides whether it may)
+  const { attempt, note, followUp } = await heal(app, action, target);
+  record.attempt = attempt;
+  log.info(`${alert.alertName} on ${app.slug} -> ${attempt.action} ${attempt.result} (${note})`);
 
-  // 2. record
-  const saved = await withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
+  // 2. record. The verification already runs; it gets the attempt's id once saved
+  const saving = withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
+  followUp(saving.then((saved) => (saved === FAILED ? null : saved.attempts[0]?.id ?? null)));
+  const saved = await saving;
   if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
   // else: the record stays in memory as pending, for the resolve or the flush
   return 'opened';
@@ -107,22 +106,24 @@ async function runDeferred(fingerprint) {
   // a new rollout started meanwhile: it waits for that one's window instead
   if (!entry?.deferred || isRolloutInProgress(entry.slug)) return;
   const { action, target } = memory.takeDeferred(fingerprint);
+  const app = await memory.findApp(entry.slug, null);
+  if (!app) return;
 
   // 1. act
-  const attemptedAt = new Date();
-  const outcome = await executeAction(action, target);
-  const attempt = { action, trigger: 'AUTO', dryRun: outcome.dryRun, result: outcome.result, attemptedAt };
-  log.info(`${target.alertName} on ${entry.slug} still firing after the grace window -> ${action} ${outcome.result} (${outcome.note})`);
+  const { attempt, note, followUp } = await heal(app, action, target);
+  log.info(`${target.alertName} on ${entry.slug} still firing after the grace window -> ${attempt.action} ${attempt.result} (${note})`);
 
   // 2. record
   if (entry.pending) {
     entry.pending.attempt = attempt; // saved with the incident, by the resolve or the flush
+    followUp(null);
     return;
   }
-  const saved = await withRetry(`record the deferred ${action} on ${entry.slug}`, () =>
+  const saving = withRetry(`record the deferred ${action} on ${entry.slug}`, () =>
     prisma.remediationAttempt.create({ data: { incidentId: entry.incidentId, ...attempt }, select: { id: true } }),
   );
-  if (saved === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
+  followUp(saving.then((saved) => (saved === FAILED ? null : saved.id)));
+  if ((await saving) === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
 }
 
 async function resolveIncident(alert) {
@@ -224,7 +225,7 @@ async function createIncident(record, resolvedAt = null) {
       }),
       attempts: record.attempt ? { create: [record.attempt] } : undefined,
     },
-    select: { id: true },
+    select: { id: true, attempts: { select: { id: true } } },
   });
 }
 

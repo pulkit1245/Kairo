@@ -127,6 +127,7 @@ export async function rebuild() {
         fingerprint: true,
         alertName: true,
         cause: true,
+        pod: true,
         app: { select: { slug: true, namespace: true } },
         _count: { select: { attempts: true } },
       },
@@ -140,7 +141,7 @@ export async function rebuild() {
       ? null
       : {
           action: decideAction(i.alertName, i.cause).action,
-          target: { alertName: i.alertName, appName: i.app.slug, namespace: i.app.namespace, pod: null, summary: i.cause },
+          target: { alertName: i.alertName, pod: i.pod ?? null },
         };
     open.set(i.fingerprint, { incidentId: i.id, pending: null, slug: i.app.slug, deferred });
   }
