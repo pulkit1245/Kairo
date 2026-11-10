@@ -240,15 +240,24 @@ export async function scaleDeployment(namespace, name, replicas) {
   );
 }
 
-// The app's pods, newest first, without those already being deleted
-export async function listAppPods(namespace, app) {
+// The app's pods, newest first, without those already being deleted:
+// [{ name, ready, image }]
+async function appPods(namespace, app) {
   const pods = await call((c) =>
     c.makeApiClient(k8s.CoreV1Api).listNamespacedPod({ namespace, labelSelector: `app=${app}` }),
   );
   return pods.items
     .filter((p) => !p.metadata?.deletionTimestamp)
     .sort((a, b) => new Date(b.metadata.creationTimestamp) - new Date(a.metadata.creationTimestamp))
-    .map((p) => p.metadata.name);
+    .map((p) => ({
+      name: p.metadata.name,
+      ready: p.status?.conditions?.some((c) => c.type === 'Ready' && c.status === 'True') ?? false,
+      image: p.spec?.containers?.find((c) => c.name === app)?.image ?? null,
+    }));
+}
+
+export async function listAppPods(namespace, app) {
+  return (await appPods(namespace, app)).map((p) => p.name);
 }
 
 /**
@@ -273,7 +282,13 @@ export async function actionTookEffect(namespace, name, { image, replicas, gone 
     const count = `${s.readyReplicas ?? 0} of ${want} replicas ready`;
     return { done: false, detail: trouble && trouble !== 'not ready' && trouble !== 'no pods' ? `${trouble}, ${count}` : count };
   }
-  if (gone && (await listAppPods(namespace, name)).includes(gone)) return { done: false, detail: `pod ${gone} is still there` };
+  // the Deployment's own counts lag behind: right after a pod is deleted they
+  // still count it as ready. So the pods themselves must show it: enough
+  // Ready pods on the intended image, none of them the deleted one
+  const pods = await appPods(namespace, name);
+  if (gone && pods.some((p) => p.name === gone)) return { done: false, detail: `pod ${gone} is still there` };
+  const readyPods = pods.filter((p) => p.ready && p.name !== gone && (!image || p.image === image)).length;
+  if (readyPods < want) return { done: false, detail: `${readyPods} of ${want} pods ready` };
   return { done: true };
 }
 
