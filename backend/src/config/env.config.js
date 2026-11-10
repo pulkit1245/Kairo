@@ -46,6 +46,11 @@ export const env = {
     privateKeyPath: expandHome(process.env.GITHUB_APP_PRIVATE_KEY_PATH || '~/.kairo/kairo-github-app.pem'),
   },
 
+  // Prometheus through the local port-forward (FR-57): only the backend queries it
+  prometheusUrl: (process.env.PROMETHEUS_URL || 'http://localhost:9090').replace(/\/$/, ''),
+  // Traefik's LoadBalancer on localhost, for Send Traffic (FR-62)
+  traefikUrl: (process.env.TRAEFIK_URL || 'http://localhost').replace(/\/$/, ''),
+
   // signs the session cookie. Without it nobody can sign in (FR-42)
   sessionSecret: process.env.SESSION_SECRET || null,
   // FR-2: GitHub logins that may sign in, comma separated, case doesn't matter
