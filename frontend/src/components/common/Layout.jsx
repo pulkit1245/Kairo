@@ -45,7 +45,7 @@ export function Layout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-4 border-b border-outline-variant px-4 py-3 md:px-6">
           <HealthPills />
-          <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center gap-4">
             {/* mobile: no sidebar, so the nav moves up here */}
             <nav className="flex gap-3 md:hidden" aria-label="Main">
               {NAV.map((item) => (
@@ -87,7 +87,7 @@ function UserMenu() {
           {user.login.slice(0, 1)}
         </span>
       )}
-      <button type="button" onClick={signOut} className="text-body-md text-on-surface-variant hover:text-on-surface">
+      <button type="button" onClick={signOut} className="whitespace-nowrap text-body-md text-on-surface-variant hover:text-on-surface">
         Sign out
       </button>
     </div>
