@@ -17,9 +17,16 @@ npx prisma migrate deploy   # creates the 8 tables
 npm run dev
 ```
 
+Two settings in `.env` come from the platform set-up in `infra/README.md`:
+
+- `KUBECONFIG`: the `kairo-platform` service account's kubeconfig, written by `infra/scripts/kairo-kubeconfig.sh`. The backend then talks to the cluster with only the FR-68 permissions.
+- `ALERT_WEBHOOK_TOKEN`: the bearer token Alertmanager sends. The same value goes in `infra/terraform/terraform.tfvars` as `alert_webhook_token`.
+
+`REMEDIATION_DRY_RUN=false` makes healing act for real (restart pods). The top bar's Healing pill shows which mode is on.
+
 `curl localhost:4000/api/health` should say `"db":"up","cluster":"up"`. `cluster` is `down` until Docker Desktop's Kubernetes (kubeadm provisioner, context `docker-desktop`) is running.
 
-The API listens on every interface, not only localhost, because Alertmanager inside the cluster calls it at `http://host.docker.internal:4000/api/alerts`. Sign-in and an alert token arrive in P1 and P2 (FR-42, FR-45).
+The API listens on every interface, not only localhost, because Alertmanager inside the cluster calls it at `http://host.docker.internal:4000/api/alerts`. That endpoint needs the bearer token (FR-45); sign-in on the other endpoints arrives in P2 (FR-42).
 
 ## Data model
 
@@ -52,9 +59,18 @@ Full shapes are in [`docs/api/README.md`](../docs/api/README.md).
 | POST | `/api/alerts` | Alertmanager webhook receiver |
 | GET | `/api/incidents` | Latest 50 incidents with their remediation attempts |
 
-A run currently goes `CLONING → DETECTING → GENERATING` and stops there with its files saved. Build and deploy come in P1.
+A run goes `CLONING → DETECTING → GENERATING → BUILDING → DEPLOYING → RUNNING`, or `FAILED` at any step:
 
-When the backend starts, it marks runs that never got a `finishedAt` as `FAILED` ("Interrupted"), because the process died mid-run. Finished runs are left alone.
+- **GENERATING** renders the Dockerfile, Deployment, Service, Ingress and alert rules, and checks every file (FR-26).
+- **BUILDING** runs `docker build` with Docker Desktop's engine as `kairo/<slug>:<full sha>`, 10-minute timeout, keeping the last 80 log lines on failure.
+- **DEPLOYING** creates namespace `kairo-<slug>`, applies the files (server-side apply) and waits up to 3 minutes for the pods to be ready.
+- **RUNNING** writes the app's alert rules into `monitoring/kairo-alert-rules` and records an `ACTIVE` release.
+
+At most 3 apps may be running; a fourth is refused before cloning. The clone is deleted when the run ends.
+
+When the backend starts, it marks runs that never got a `finishedAt` as `FAILED` ("Interrupted"), because the process died mid-run, and empties the clone workspace. Finished runs are left alone. It also rebuilds healing's memory (open incidents, apps) from the database.
+
+Healing acts first and records second (FR-74): it decides from memory, runs the action, then writes the incident. With Postgres stopped, a restart still happens; the failed write is logged.
 
 ## Scripts
 
@@ -62,6 +78,7 @@ When the backend starts, it marks runs that never got a `finishedAt` as `FAILED`
 - `npm start`: same thing without watching
 - `npm test`: unit tests (Node's built-in runner, no jest)
 - `npm run db:studio`: look at the tables in a browser
+- `npm run prom:forward`: port-forward Prometheus to `localhost:9090` (uses your own kubeconfig)
 
 ## Where things live
 
