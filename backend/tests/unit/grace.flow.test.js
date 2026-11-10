@@ -73,6 +73,7 @@ describe('an alert that fires and resolves inside the grace window', () => {
     assert.equal(await handleAlert({ ...data0, firing: true }), 'opened');
     assert.equal(writes.incidents.length, 1);
     assert.equal(writes.incidents[0].alertName, 'KairoOOMKilled');
+    assert.equal(writes.incidents[0].pod, 'demo-abc');
     assert.equal(writes.incidents[0].attempts, undefined, 'recorded without an attempt');
     assert.deepEqual(memory.deferredFor('demo'), ['fp-oom']);
     assert.equal(hasOpenIncident('demo'), true);

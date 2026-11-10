@@ -37,7 +37,7 @@ export const FILE_KINDS = Object.freeze([
 
 export const FILE_ORIGINS = Object.freeze(['GENERATED', 'KEPT_EXISTING']);
 
-export const RELEASE_SOURCES = Object.freeze(['PREVIEW', 'GHCR']);
+export const RELEASE_SOURCES = Object.freeze(['PREVIEW', 'GHCR', 'TEST']);
 
 export const RELEASE_STATUSES = Object.freeze(['ACTIVE', 'SUPERSEDED', 'ROLLED_BACK', 'FAILED']);
 

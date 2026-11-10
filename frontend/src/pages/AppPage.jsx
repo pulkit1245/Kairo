@@ -72,7 +72,7 @@ function AppHeader({ app, now }) {
             </code>
             {r.commitMessage && <span className="text-on-surface">{r.commitMessage}</span>}
             <span className="text-outline">
-              · {r.source === 'GHCR' ? 'GHCR' : 'preview'} · {relativeTime(r.deployedAt, now)}
+              · {r.source === 'GHCR' ? 'GHCR' : r.source === 'TEST' ? 'Break It' : 'preview'} · {relativeTime(r.deployedAt, now)}
             </span>
           </span>
         ) : (

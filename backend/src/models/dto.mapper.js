@@ -124,6 +124,7 @@ export function toIncidentDto(row) {
     appId: row.appId,
     appName: row.app.slug,
     alertName: row.alertName,
+    pod: row.pod ?? null,
     cause: row.cause,
     status: row.status,
     explanation: row.explanation,

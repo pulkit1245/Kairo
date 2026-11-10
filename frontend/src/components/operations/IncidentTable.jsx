@@ -54,6 +54,7 @@ export function IncidentTable({ incidents }) {
               <td className={td}>
                 <div className="font-mono text-code-md">{i.alertName}</div>
                 <div className="text-body-sm text-on-surface-variant">{i.cause}</div>
+                {i.pod && <div className="font-mono text-code-sm text-secondary">pod {i.pod}</div>}
               </td>
               <td className={td}>
                 <StatusBadge status={incidentStatus(i.status)} />

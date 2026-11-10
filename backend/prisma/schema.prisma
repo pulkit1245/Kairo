@@ -61,6 +61,7 @@ enum FileOrigin {
 enum ReleaseSource {
   PREVIEW
   GHCR
+  TEST
 }
 
 enum ReleaseStatus {
@@ -217,6 +218,8 @@ model Incident {
   // alertmanager's fingerprint. same alert firing again = same fingerprint
   fingerprint       String
   alertName         String
+  // the alert's pod label, e.g. the pod that was OOM-killed (P3). null for app-level alerts
+  pod               String?
   status            IncidentStatus @default(OPEN)
   cause             String
   explanation       String? // Gemini, P4

@@ -105,7 +105,7 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | Field | Meaning |
 | --- | --- |
 | `release` | The `ACTIVE` release, or `null` |
-| `releases[].source` | `PREVIEW` (built on the laptop during onboarding) or `GHCR` (built by the repo's workflow, rolled out by Kairo) |
+| `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
@@ -255,6 +255,7 @@ The latest 50 Incidents, newest first.
   "appId": "cmwajzqex0003sazk5mt2kra8",
   "appName": "node-js-getting-started",
   "alertName": "KairoOOMKilled",
+  "pod": "node-js-getting-started-6d9f8c7b5-x2k4q",
   "cause": "Container went over its memory limit",
   "status": "RESOLVED",
   "explanation": null,
@@ -281,6 +282,7 @@ The latest 50 Incidents, newest first.
 | Field | Values |
 | --- | --- |
 | `status` | `OPEN`, `RESOLVED` |
+| `pod` | The pod the alert named (its `pod` label), or `null` for an app-level alert (since P3) |
 | `recoverySeconds` | Seconds from start to resolve, one decimal; `null` while open |
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |
 | `attempts[].action` | `RESTART`, `ROLLBACK`, `SCALE_UP`, `SCALE_DOWN`, `NONE` |

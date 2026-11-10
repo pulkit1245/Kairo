@@ -61,6 +61,7 @@ async function openIncident(alert) {
     appId: app.id,
     fingerprint: alert.fingerprint,
     alertName: alert.alertName,
+    pod: alert.pod,
     cause,
     startedAt: alert.startsAt,
     attempt: null,
@@ -210,6 +211,7 @@ async function createIncident(record, resolvedAt = null) {
       appId,
       fingerprint: record.fingerprint,
       alertName: record.alertName,
+      pod: record.pod ?? null,
       cause: record.cause,
       startedAt: record.startedAt,
       ...(resolvedAt && {
