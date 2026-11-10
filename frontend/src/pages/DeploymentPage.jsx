@@ -10,7 +10,7 @@ import { FilesViewer } from '../components/onboarding/FilesViewer.jsx';
 import { PreviewPanel } from '../components/onboarding/PreviewPanel.jsx';
 import { Stepper } from '../components/onboarding/Stepper.jsx';
 import { usePoll } from '../hooks/usePoll.js';
-import { createDeployment, getDeployment } from '../services/api.js';
+import { createDeployment, getDeployment, onboardRepo } from '../services/api.js';
 
 // FR-8: poll every 3 s while the run is going, stop once it has finished
 const POLL_MS = 3000;
@@ -31,7 +31,8 @@ export function DeploymentPage() {
     setRetrying(true);
     setRetryError(null);
     try {
-      const next = await createDeployment(run.repoUrl);
+      // the same way the run was started: from the picker, or the URL shortcut
+      const next = run.installed ? await onboardRepo(run.repoFullName) : await createDeployment(run.repoUrl);
       navigate(`/deployments/${next.id}`);
     } catch (err) {
       setRetryError(err.message);

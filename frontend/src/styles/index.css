@@ -41,6 +41,9 @@
   --text-headline-xl: 28px;
   --text-headline-xl--line-height: 34px;
   --text-headline-xl--letter-spacing: -0.02em;
+  --text-headline-lg: 22px;
+  --text-headline-lg--line-height: 28px;
+  --text-headline-lg--letter-spacing: -0.01em;
   --text-headline-md: 16px;
   --text-headline-md--line-height: 22px;
   --text-code-md: 12px;
@@ -63,6 +66,16 @@
   body {
     @apply bg-background text-on-surface font-sans text-body-md antialiased;
   }
+}
+
+/* the faint grid behind the sign-in card (Stitch 01, 02) */
+.auth-grid {
+  background-color: var(--color-background);
+  background-image:
+    radial-gradient(circle at 50% 45%, rgb(6 182 212 / 0.08), transparent 45%),
+    linear-gradient(rgb(61 73 76 / 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(61 73 76 / 0.18) 1px, transparent 1px);
+  background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
 /* Material Symbols are a font: the icon name is the text inside the span */
