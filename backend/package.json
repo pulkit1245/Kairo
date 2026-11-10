@@ -21,7 +21,7 @@
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "nunjucks": "^3.2.4",
-    "simple-git": "^3.36.0"
+    "simple-git": "^4.0.2"
   },
   "devDependencies": {
     "prisma": "^6.19.3"

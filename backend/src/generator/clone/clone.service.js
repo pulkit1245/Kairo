@@ -11,7 +11,12 @@ export async function cloneRepo(cloneUrl, runId, opts) {
   await mkdir(opts.workspaceDir, { recursive: true });
   await rm(dir, { recursive: true, force: true });
 
-  const git = simpleGit({ timeout: { block: opts.timeoutMs } }).env(gitEnv());
+  // simple-git 4 refuses GIT_* variables unless they're named here. Only the
+  // one that stops git from asking for a password is allowed (see gitEnv)
+  const git = simpleGit({
+    timeout: { block: opts.timeoutMs },
+    allowEnvironment: ['GIT_TERMINAL_PROMPT'],
+  }).env(gitEnv());
 
   try {
     // shallow clone - we only need the latest tree, not the history
