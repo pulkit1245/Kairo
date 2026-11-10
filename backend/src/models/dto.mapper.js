@@ -30,15 +30,41 @@ export function toDeploymentDto(row) {
     explanation: row.explanation,
     startedAt: row.startedAt.toISOString(),
     finishedAt: iso(row.finishedAt),
+    pr: prDto(row.app),
   };
 
-  // only the detail endpoint loads the files
+  // only the detail endpoint loads the files and the release
+  if (row.files) {
+    // facts and assumptions ride on the Dockerfile row (config.service.js)
+    const facts = row.files.find((f) => f.kind === 'DOCKERFILE')?.facts ?? {};
+    dto.facts = facts.facts ?? {};
+    dto.assumptions = facts.assumptions ?? [];
+    dto.release = row.release
+      ? {
+          id: row.release.id,
+          status: row.release.status,
+          deployedAt: iso(row.release.deployedAt),
+          healthyAt: iso(row.release.healthyAt),
+          graceEndsAt: iso(new Date(row.release.deployedAt.getTime() + row.release.graceMs)),
+        }
+      : null;
+  }
   if (row.files) {
     dto.configs = [...row.files]
       .sort((a, b) => FILE_KINDS.indexOf(a.kind) - FILE_KINDS.indexOf(b.kind))
       .map((f) => ({ kind: f.kind, origin: f.origin, path: f.path, content: f.content }));
   }
   return dto;
+}
+
+// the setup PR (FR-34); state null = Kairo hasn't tried yet
+function prDto(app) {
+  return {
+    state: app.prState ?? null,
+    number: app.prNumber ?? null,
+    url: app.prNumber ? `https://github.com/${app.repoFullName}/pull/${app.prNumber}` : null,
+    error: app.prError ?? null,
+  };
 }
 
 /**

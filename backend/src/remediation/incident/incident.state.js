@@ -6,7 +6,7 @@ import { createLogger } from '../../utils/logger.js';
 // FR-74: decisions use memory, not the database, so a database outage never
 // blocks healing. The memory is rebuilt from the database at boot.
 //
-//   open: fingerprint -> { incidentId, pending }
+//   open: fingerprint -> { incidentId, pending, slug }
 //     incidentId is set once the incident is in the database. pending holds the
 //     whole record while it isn't (the write failed), so it can still be saved
 //     later, when the alert resolves.
@@ -46,12 +46,18 @@ export function isOpen(fingerprint) {
 }
 
 export function markOpen(fingerprint, pending) {
-  open.set(fingerprint, { incidentId: null, pending });
+  open.set(fingerprint, { incidentId: null, pending, slug: pending.slug });
 }
 
 export function markRecorded(fingerprint, incidentId) {
   const entry = open.get(fingerprint);
-  if (entry) open.set(fingerprint, { incidentId, pending: null });
+  if (entry) open.set(fingerprint, { incidentId, pending: null, slug: entry.slug });
+}
+
+// FR-72: is any Kairo alert open for this app? Read at the end of a grace window
+export function isAlerting(slug) {
+  for (const e of open.values()) if (e.slug === slug) return true;
+  return false;
 }
 
 // removes and returns the entry, so the resolve path knows if a record is still unsaved
@@ -95,10 +101,13 @@ export async function rebuild() {
   open.clear();
   apps.clear();
   const [incidents, liveApps] = await Promise.all([
-    prisma.incident.findMany({ where: { status: 'OPEN' }, select: { id: true, fingerprint: true } }),
+    prisma.incident.findMany({
+      where: { status: 'OPEN' },
+      select: { id: true, fingerprint: true, app: { select: { slug: true } } },
+    }),
     prisma.app.findMany({ where: { deletedAt: null }, select: { id: true, slug: true, namespace: true } }),
   ]);
-  for (const i of incidents) open.set(i.fingerprint, { incidentId: i.id, pending: null });
+  for (const i of incidents) open.set(i.fingerprint, { incidentId: i.id, pending: null, slug: i.app.slug });
   for (const a of liveApps) rememberApp(a);
   return { openIncidents: incidents.length, apps: liveApps.length };
 }

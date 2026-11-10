@@ -1,6 +1,7 @@
 import { prisma } from '../db/index.js';
 import { getInstallationRepo, githubErrorMessage, isInstallationGone } from '../github/github.client.js';
 import { runPipeline } from '../generator/pipeline.service.js';
+import { GRACE_MS } from '../shipping/grace.service.js';
 import { k8sErrorMessage, listRunningApps } from '../kubernetes/k8s.client.js';
 import { toDeploymentDto } from '../models/dto.mapper.js';
 import { AppError, NotFoundError } from '../utils/AppError.js';
@@ -160,7 +161,14 @@ export async function getDeployment(id) {
     include: { app: true, files: true },
   });
   if (!run) throw new NotFoundError('Deployment');
-  return toDeploymentDto(run);
+  // the preview this run produced, for the healthy countdown (FR-71, FR-72)
+  const release = run.commitSha
+    ? await prisma.release.findFirst({
+        where: { appId: run.appId, commitSha: run.commitSha, source: 'PREVIEW', deployedAt: { gte: run.startedAt } },
+        orderBy: { deployedAt: 'desc' },
+      })
+    : null;
+  return toDeploymentDto({ ...run, release: release ? { ...release, graceMs: GRACE_MS } : null });
 }
 
 export async function listDeployments(limit = 20) {

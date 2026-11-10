@@ -40,10 +40,19 @@ describe('incident memory', () => {
     assert.equal(memory.isOpen('fp1'), false);
   });
 
-  it('drops the pending record once it is in the database', () => {
-    memory.markOpen('fp1', { alertName: 'KairoOOMKilled' });
+  it('drops the pending record once it is in the database, and keeps the app', () => {
+    memory.markOpen('fp1', { alertName: 'KairoOOMKilled', slug: 'demo' });
     memory.markRecorded('fp1', 'inc1');
-    assert.deepEqual(memory.close('fp1'), { incidentId: 'inc1', pending: null });
+    assert.deepEqual(memory.close('fp1'), { incidentId: 'inc1', pending: null, slug: 'demo' });
+  });
+
+  it('knows which apps have an open alert (FR-72)', () => {
+    memory.markOpen('fp1', { alertName: 'KairoOOMKilled', slug: 'demo' });
+    memory.markRecorded('fp1', 'inc1');
+    assert.equal(memory.isAlerting('demo'), true);
+    assert.equal(memory.isAlerting('other'), false);
+    memory.close('fp1');
+    assert.equal(memory.isAlerting('demo'), false);
   });
 
   it('keeps failed writes queued until they are taken', () => {

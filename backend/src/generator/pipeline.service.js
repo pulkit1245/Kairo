@@ -10,6 +10,7 @@ import {
   putAlertRules,
   waitForRollout,
 } from '../kubernetes/k8s.client.js';
+import { startGrace } from '../shipping/grace.service.js';
 import { beginRollout, endRollout } from '../state/rollout.state.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
@@ -129,8 +130,12 @@ export async function runPipeline(runId) {
     // only a ready app gets alert rules: rules on a broken preview would fire
     // for something that never worked
     await putAlertRules(app.slug, byKind.ALERT_RULES.content);
-    await recordRelease(app.id, applied, 'ACTIVE');
+    const release = await recordRelease(app.id, applied, 'ACTIVE');
     await prisma.app.update({ where: { id: app.id }, data: { replicas: 1 } });
+    // FR-71: every rollout, the preview included, starts a grace window. At its
+    // end the release is marked healthy or not, and a healthy preview of a
+    // picked repo gets its PR (FR-30, generator/pr via the hook in src/index.js)
+    startGrace(release, { ...app, namespace });
 
     await moveTo(runId, 'RUNNING', { finishedAt: new Date() });
     log.info(`${app.slug}: RUNNING in ${Math.round((Date.now() - started) / 1000)} s`);
@@ -158,14 +163,16 @@ export async function runPipeline(runId) {
   }
 }
 
-// A new ACTIVE release supersedes the previous ACTIVE one; a FAILED one changes nothing else.
+// A new ACTIVE release supersedes the previous ACTIVE one; a FAILED one changes
+// nothing else. Returns the new release.
 async function recordRelease(appId, { imageRef, commitSha, commitMessage }, status) {
   const data = { appId, imageRef, commitSha, commitMessage, source: 'PREVIEW', status };
   if (status !== 'ACTIVE') return prisma.release.create({ data });
-  return prisma.$transaction([
+  const [, release] = await prisma.$transaction([
     prisma.release.updateMany({ where: { appId, status: 'ACTIVE' }, data: { status: 'SUPERSEDED' } }),
     prisma.release.create({ data }),
   ]);
+  return release;
 }
 
 function moveTo(id, status, extra = {}) {

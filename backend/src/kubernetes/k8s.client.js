@@ -147,6 +147,20 @@ export async function waitForRollout(namespace, name, { timeoutMs = 180_000, int
   return { ready: false, detail: await podTrouble(namespace, name) };
 }
 
+// FR-72's check at the end of a grace window: every desired replica runs this
+// image and is ready. Returns { ready: true } or { ready: false, detail }.
+export async function releaseReady(namespace, name, image) {
+  const d = await call((c) => c.makeApiClient(k8s.AppsV1Api).readNamespacedDeployment({ name, namespace }));
+  const want = d.spec?.replicas ?? 1;
+  const s = d.status ?? {};
+  const running = d.spec?.template?.spec?.containers?.find((c) => c.name === name)?.image;
+  if (running !== image) return { ready: false, detail: `the Deployment runs ${running ?? 'nothing'}, not this release` };
+  if ((s.observedGeneration ?? 0) < (d.metadata?.generation ?? 1)) return { ready: false, detail: 'a rollout is still going' };
+  const ready = (s.readyReplicas ?? 0) === want && (s.updatedReplicas ?? 0) === want && (s.replicas ?? 0) === want;
+  if (ready) return { ready: true };
+  return { ready: false, detail: (await podTrouble(namespace, name)) ?? `${s.readyReplicas ?? 0} of ${want} replicas ready` };
+}
+
 // The most telling reason a pod isn't ready: a waiting reason (CrashLoopBackOff,
 // ErrImageNeverPull...), else the last termination reason, else "not ready".
 async function podTrouble(namespace, app) {

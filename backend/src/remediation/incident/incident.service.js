@@ -200,3 +200,6 @@ export async function listIncidents(limit = 50) {
 
 // at boot (src/index.js)
 export const rebuildIncidentState = memory.rebuild;
+
+// for shipping/'s grace window, wired in src/index.js (FR-72)
+export const hasOpenIncident = memory.isAlerting;
