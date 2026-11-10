@@ -73,9 +73,10 @@ function prDto(app) {
 /**
  * The app page header and release list (P2c, Stitch 07).
  * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
- * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38) }
+ * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38),
+ *          attentionReason, traffic: Send Traffic's current or last run }
  */
-export function toAppDto(row, { graceMs, storedImages }) {
+export function toAppDto(row, { graceMs, storedImages, attentionReason = null, traffic = null }) {
   const run = row.pipelineRuns?.[0] ?? null;
   const release = (r) => ({
     id: r.id,
@@ -100,6 +101,8 @@ export function toAppDto(row, { graceMs, storedImages }) {
     installed: Boolean(row.installationId),
     stack: row.stack,
     health: row.health,
+    // why it NEEDS_ATTENTION (null otherwise, or after a backend restart)
+    attentionReason,
     autoHeal: row.autoHeal,
     replicas: row.replicas,
     publicUrl: row.publicUrl,
@@ -111,6 +114,7 @@ export function toAppDto(row, { graceMs, storedImages }) {
     pr: prDto(row),
     // FR-35: Kairo rolls out new GHCR images once the setup PR is merged
     watchingGhcr: row.prState === 'MERGED',
+    traffic,
   };
 }
 

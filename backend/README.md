@@ -63,7 +63,9 @@ Full shapes are in [`docs/api/README.md`](../docs/api/README.md).
 | GET | `/api/health` | API, database and cluster status |
 | GET | `/api/repos` | Repos your installations can see, for the picker |
 | POST | `/api/apps` | `{ "repoFullName": "owner/repo" }` → 202, onboarding from a picked repo |
-| GET | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR |
+| GET, PATCH | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR. PATCH `{ "autoHeal": bool }` |
+| POST | `/api/apps/:slug/traffic` | Send Traffic: 50 req/s for 60 s through Traefik |
+| POST | `/api/apps/:slug/break` | Break It: `{ "kind": "kill-pod" \| "broken-release" }` |
 | POST | `/api/apps/:slug/pr` | Try the setup PR again |
 | POST | `/api/deployments` | `{ "repoUrl": "https://github.com/owner/repo" }` → 202. Testing shortcut, hidden from the UI |
 | GET | `/api/deployments` | Latest 20 pipeline runs |

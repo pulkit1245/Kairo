@@ -109,6 +109,33 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
+| `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
+| `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
+| `traffic` | Send Traffic's current or last run, or `null` |
+
+## PATCH /api/apps/:slug
+
+`{ "autoHeal": false }` turns automatic healing off or on for the app (FR-51), and returns the app as `GET /api/apps/:slug` does. With it off, alerts still open incidents, each with a `SKIPPED` attempt that names the action Kairo would have taken, the app shows `NEEDS_ATTENTION`, and nothing in the cluster changes. 400 unless `autoHeal` is a boolean.
+
+## POST /api/apps/:slug/traffic
+
+Send Traffic (FR-62): 50 requests a second for 60 s, through Traefik with the app's host. If the app answers `/work`, the requests are `GET /work?ms=20`, which burns CPU so scaling fires; otherwise `GET /`. 202:
+
+```json
+{ "path": "/work?ms=20", "rps": 50, "startedAt": "…", "endsAt": "…" }
+```
+
+409 while traffic is already going to the app. Progress shows on `GET /api/apps/:slug` as `traffic: { running, path, startedAt, endsAt, sent, ok, failed }`, the run going now or the last one.
+
+## POST /api/apps/:slug/break
+
+Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes replaces it by itself, so Kairo does nothing. `{ "kind": "broken-release" }` deploys `kairo/broken-release:1`, an image that exits on start: it is recorded as a `TEST` release, `ACTIVE`, the old pod keeps serving, the new one crash-loops, and `KairoCrashLoop` makes Kairo roll back. 202:
+
+```json
+{ "kind": "broken-release", "releaseId": "…", "image": "kairo/broken-release:1" }
+```
+
+400 for another `kind`; 409 during a rollout or grace window, with no running release, or when the broken release already runs.
 
 ## POST /api/apps/:slug/pr
 
@@ -287,7 +314,8 @@ The latest 50 Incidents, newest first.
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |
 | `attempts[].action` | `RESTART`, `ROLLBACK`, `SCALE_UP`, `SCALE_DOWN`, `NONE` |
 | `attempts[].trigger` | `AUTO`, `MANUAL` |
-| `attempts[].result` | `APPLIED`, `VERIFIED`, `UNVERIFIED`, `FAILED`, `SKIPPED` (dry run, no action for the alert, or not built yet) |
+| `attempts[].result` | `APPLIED` (ran, being checked), `VERIFIED` (took effect within 90 s), `UNVERIFIED` (didn't), `FAILED`, `SKIPPED` (dry run, no action for the alert, auto-heal off, given up, mid-rollout) |
+| `attempts[].fromReleaseId`, `toReleaseId` | For a rollback: the release rolled away from and the one rolled back to |
 
 **Changed in P0:** removed `deploymentId` and `action`. Added `appId`, `explanation`, `githubIssueNumber` and `attempts`. `recoverySeconds` is now stored when the incident resolves instead of being worked out on every request.
 

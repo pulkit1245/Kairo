@@ -2,7 +2,9 @@ import { prisma } from '../db/index.js';
 import { toAppDto } from '../models/dto.mapper.js';
 import { GRACE_MS } from '../shipping/grace.service.js';
 import { storedImages } from '../shipping/prune.service.js';
-import { NotFoundError } from '../utils/AppError.js';
+import { attentionReason, setAutoHealState } from '../remediation/healing/healing.state.js';
+import { startTraffic, trafficStatus } from '../testpanel/traffic.service.js';
+import { AppError, NotFoundError } from '../utils/AppError.js';
 
 // How many releases the app page lists. Pruning keeps 3 images (FR-38); the
 // rest stay listed so the history reads right, marked as no longer stored.
@@ -20,6 +22,29 @@ export async function getApp(slug) {
   if (!app) throw new NotFoundError('App');
   return toAppDto(
     { ...app, releases: app.releases.slice(0, RELEASES_SHOWN) },
-    { graceMs: GRACE_MS, storedImages: storedImages(app.releases) },
+    {
+      graceMs: GRACE_MS,
+      storedImages: storedImages(app.releases),
+      attentionReason: app.health === 'NEEDS_ATTENTION' ? attentionReason(slug) : null,
+      traffic: trafficStatus(slug),
+    },
   );
+}
+
+// PATCH /api/apps/:slug { autoHeal } (FR-51). Memory first: the next alert
+// already follows it (FR-74)
+export async function updateApp(slug, body) {
+  if (typeof body?.autoHeal !== 'boolean') throw new AppError('autoHeal must be true or false', 400);
+  const app = await prisma.app.findFirst({ where: { slug, deletedAt: null }, select: { id: true } });
+  if (!app) throw new NotFoundError('App');
+  setAutoHealState(slug, body.autoHeal);
+  await prisma.app.update({ where: { id: app.id }, data: { autoHeal: body.autoHeal } });
+  return getApp(slug);
+}
+
+// POST /api/apps/:slug/traffic (FR-62)
+export async function sendTraffic(slug) {
+  const app = await prisma.app.findFirst({ where: { slug, deletedAt: null }, select: { slug: true } });
+  if (!app) throw new NotFoundError('App');
+  return startTraffic(app.slug);
 }
