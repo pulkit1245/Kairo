@@ -7,7 +7,7 @@ metadata:
     app: {{ appName }}
     app.kubernetes.io/managed-by: kairo
   annotations:
-    kairo.dev/deployment-id: "{{ deploymentId }}"
+    kairo.dev/pipeline-run-id: "{{ pipelineRunId }}"
 spec:
   replicas: {{ replicas }}
   # rollback needs old ReplicaSets to still be around

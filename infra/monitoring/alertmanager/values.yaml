@@ -1,0 +1,26 @@
+# Alertmanager part of the prometheus chart's values.
+# Terraform fills in the webhook URL (var.alert_webhook_url).
+# P1 adds the bearer token (FR-45) and the Kairo alert rules (FR-44).
+
+alertmanager:
+  enabled: true
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  config:
+    receivers:
+      - name: kairo
+        webhook_configs:
+          - url: "${webhook_url}"
+            send_resolved: true
+    route:
+      receiver: kairo
+      group_by: [alertname, namespace, app]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 1h

@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+/*
+ * "Calm Control Room" tokens from the Stitch project
+ * (docs/planning/design/stitch/kairo-theme.js), moved into Tailwind v4's @theme.
+ * Only the tokens the app uses are here; add more from that file as screens need them.
+ */
+@theme {
+  --color-*: initial;
+
+  --color-background: #051424;
+  --color-surface: #051424;
+  --color-surface-container-lowest: #010f1f;
+  --color-surface-container-low: #0d1c2d;
+  --color-surface-container: #122131;
+  --color-surface-container-high: #1c2b3c;
+  --color-surface-container-highest: #273647;
+  --color-on-surface: #d4e4fa;
+  --color-on-surface-variant: #bcc9cd;
+  --color-outline: #869397;
+  --color-outline-variant: #3d494c;
+
+  --color-primary: #4cd7f6;
+  --color-primary-container: #06b6d4;
+  --color-on-primary-container: #00424f;
+  --color-secondary: #89ceff;
+  --color-tertiary: #4edea3;
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-warning: #ffd479;
+
+  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --text-body-lg: 14px;
+  --text-body-lg--line-height: 20px;
+  --text-body-md: 13px;
+  --text-body-md--line-height: 18px;
+  --text-body-sm: 12px;
+  --text-body-sm--line-height: 16px;
+  --text-headline-xl: 28px;
+  --text-headline-xl--line-height: 34px;
+  --text-headline-xl--letter-spacing: -0.02em;
+  --text-headline-md: 16px;
+  --text-headline-md--line-height: 22px;
+  --text-code-md: 12px;
+  --text-code-md--line-height: 16px;
+  --text-code-sm: 11px;
+  --text-code-sm--line-height: 14px;
+  --text-code-sm--letter-spacing: 0.02em;
+
+  --radius-sm: 0.125rem;
+  --radius: 0.25rem;
+  --radius-lg: 0.5rem;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-on-surface font-sans text-body-md antialiased;
+  }
+}
+
+/* Material Symbols are a font: the icon name is the text inside the span */
+.icon {
+  font-family: 'Material Symbols Outlined';
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1;
+  display: inline-block;
+  white-space: nowrap;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+@keyframes kairo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.icon-spin {
+  animation: kairo-spin 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-spin {
+    animation: none;
+  }
+}

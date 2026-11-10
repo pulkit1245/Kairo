@@ -7,9 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// keep these enums identical to the constants in src/types.
-// prisma rejects any value that isn't in the enum, so a typo fails loudly at runtime
+// The 8 entities from PRD section 7.
+// Keep every enum identical to the constants in src/types and the frontend copy
+// (frontend/src/types/enums.js). tests/unit/enums.test.js checks all three.
+// Postgres rejects any value that isn't in the enum, so a typo fails loudly.
 
+// ---------- enums ----------
+
+// pipeline steps in order, FAILED can happen at any step
 enum DeploymentStatus {
   CLONING
   DETECTING
@@ -25,11 +30,36 @@ enum Stack {
   PYTHON
 }
 
-enum RemediationAction {
-  RESTART
-  ROLLBACK
-  SCALE
-  NONE
+enum AppHealth {
+  HEALTHY
+  HEALING
+  NEEDS_ATTENTION
+}
+
+enum GeneratedFileKind {
+  DOCKERFILE
+  DEPLOYMENT
+  SERVICE
+  INGRESS
+  WORKFLOW
+  ALERT_RULES
+}
+
+enum FileOrigin {
+  GENERATED
+  KEPT_EXISTING
+}
+
+enum ReleaseSource {
+  PREVIEW
+  GHCR
+}
+
+enum ReleaseStatus {
+  ACTIVE
+  SUPERSEDED
+  ROLLED_BACK
+  FAILED
 }
 
 enum IncidentStatus {
@@ -37,38 +67,177 @@ enum IncidentStatus {
   RESOLVED
 }
 
-model Deployment {
-  id            String           @id @default(cuid())
-  repoUrl       String
-  appName       String
-  status        DeploymentStatus @default(CLONING)
-  stack         Stack?
-  commitSha     String?
-  failureReason String?
-  // GeneratedConfig[] - small enough that a separate table isn't worth it yet
-  configs       Json?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-
-  incidents Incident[]
-
-  @@index([appName])
+enum RemediationAction {
+  RESTART
+  ROLLBACK
+  SCALE_UP
+  SCALE_DOWN
+  NONE
 }
 
+enum AttemptTrigger {
+  AUTO
+  MANUAL
+}
+
+enum AttemptResult {
+  APPLIED
+  VERIFIED
+  UNVERIFIED
+  FAILED
+  SKIPPED
+}
+
+// ---------- GitHub side (filled from P2, when sign-in exists) ----------
+
+model User {
+  id        String   @id @default(cuid())
+  githubId  Int      @unique
+  login     String   @unique
+  avatarUrl String?
+  createdAt DateTime @default(now())
+
+  installations Installation[]
+}
+
+// one per GitHub App install. suspendedAt is set when it's uninstalled
+model Installation {
+  id                   String    @id @default(cuid())
+  githubInstallationId Int       @unique
+  accountLogin         String
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt            DateTime  @default(now())
+  suspendedAt          DateTime?
+
+  apps App[]
+}
+
+// ---------- apps and their pipeline ----------
+
+// one per onboarded repo. Deleting an app sets deletedAt, the row stays for history
+model App {
+  id             String        @id @default(cuid())
+  // null until P2: apps are created from a pasted repo URL for now
+  installationId String?
+  installation   Installation? @relation(fields: [installationId], references: [id], onDelete: SetNull)
+  repoFullName   String // "owner/repo"
+  defaultBranch  String? // known after the first clone
+  // used for k8s object names, the app label on alerts and <slug>.kairo.local
+  slug           String        @unique
+  namespace      String
+  stack          Stack?
+  publicUrl      String?
+  autoHeal       Boolean       @default(true)
+  health         AppHealth     @default(HEALTHY)
+  replicas       Int           @default(1)
+  prNumber       Int?
+  // plain string until P2 decides the values
+  prState        String?
+  createdAt      DateTime      @default(now())
+  deletedAt      DateTime?
+
+  pipelineRuns PipelineRun[]
+  releases     Release[]
+  incidents    Incident[]
+
+  @@index([repoFullName])
+}
+
+// one onboarding run. The API still calls this a "deployment" (/api/deployments)
+model PipelineRun {
+  id          String            @id @default(cuid())
+  appId       String
+  app         App               @relation(fields: [appId], references: [id], onDelete: Cascade)
+  commitSha   String?
+  status      DeploymentStatus  @default(CLONING)
+  failedStep  DeploymentStatus? // the step it was on when it failed
+  errorLog    String? // readable reason, later the build log tail
+  explanation String? // Gemini, P4
+  startedAt   DateTime          @default(now())
+  // set when the run stops for good, success or failure. A null here after a
+  // restart means the backend died mid-run (FR-7)
+  finishedAt  DateTime?
+
+  files GeneratedFile[]
+
+  @@index([appId, startedAt])
+}
+
+model GeneratedFile {
+  id            String            @id @default(cuid())
+  pipelineRunId String
+  pipelineRun   PipelineRun       @relation(fields: [pipelineRunId], references: [id], onDelete: Cascade)
+  path          String // where it sits in the user's repo
+  kind          GeneratedFileKind
+  content       String
+  origin        FileOrigin        @default(GENERATED)
+  // each detected value and where it came from, e.g. { "port": { "value": 3000, "source": "default" } }
+  facts         Json?
+
+  @@index([pipelineRunId])
+}
+
+// one image that ran (or tried to run) for an app
+model Release {
+  id            String        @id @default(cuid())
+  appId         String
+  app           App           @relation(fields: [appId], references: [id], onDelete: Cascade)
+  imageRef      String
+  commitSha     String
+  commitMessage String?
+  source        ReleaseSource
+  status        ReleaseStatus
+  deployedAt    DateTime      @default(now())
+  // set once it survives its grace window (FR-72). Rollback only targets these
+  healthyAt     DateTime?
+
+  rollbacksFrom RemediationAttempt[] @relation("fromRelease")
+  rollbacksTo   RemediationAttempt[] @relation("toRelease")
+
+  @@index([appId, deployedAt])
+}
+
+// ---------- healing ----------
+
 model Incident {
-  id           String            @id @default(cuid())
-  deploymentId String?
-  deployment   Deployment?       @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
-  appName      String
-  alertName    String
-  cause        String
-  action       RemediationAction
-  status       IncidentStatus    @default(OPEN)
-  // alertmanager's fingerprint, same alert firing again = same fingerprint
-  fingerprint  String
-  startedAt    DateTime
-  resolvedAt   DateTime?
-  createdAt    DateTime          @default(now())
+  id                String         @id @default(cuid())
+  appId             String
+  app               App            @relation(fields: [appId], references: [id], onDelete: Cascade)
+  // alertmanager's fingerprint. same alert firing again = same fingerprint
+  fingerprint       String
+  alertName         String
+  status            IncidentStatus @default(OPEN)
+  cause             String
+  explanation       String? // Gemini, P4
+  startedAt         DateTime
+  resolvedAt        DateTime?
+  // stored when the incident resolves. the number the demo is about
+  recoverySeconds   Float?
+  githubIssueNumber Int?
+
+  attempts RemediationAttempt[]
 
   @@index([fingerprint, status])
+  @@index([appId, startedAt])
+}
+
+// one row per action Kairo took (or chose not to take) for an incident
+model RemediationAttempt {
+  id            String            @id @default(cuid())
+  incidentId    String
+  incident      Incident          @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  action        RemediationAction
+  trigger       AttemptTrigger    @default(AUTO)
+  dryRun        Boolean
+  result        AttemptResult
+  fromReleaseId String?
+  fromRelease   Release?          @relation("fromRelease", fields: [fromReleaseId], references: [id], onDelete: SetNull)
+  toReleaseId   String?
+  toRelease     Release?          @relation("toRelease", fields: [toReleaseId], references: [id], onDelete: SetNull)
+  attemptedAt   DateTime          @default(now())
+  // set when the check after the action passes (FR-73, P3)
+  verifiedAt    DateTime?
+
+  @@index([incidentId])
 }

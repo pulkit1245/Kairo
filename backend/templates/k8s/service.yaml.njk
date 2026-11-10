@@ -7,7 +7,7 @@ metadata:
     app: {{ appName }}
     app.kubernetes.io/managed-by: kairo
 spec:
-  # NodePort so `minikube service <name> --url` gives us something to open
+  # NodePort for now; Kairo's Traefik Ingress takes over traffic later
   type: NodePort
   selector:
     app: {{ appName }}

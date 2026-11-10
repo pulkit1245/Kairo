@@ -14,6 +14,10 @@ coverage/
 .terraform/
 *.tfstate
 *.tfstate.backup
+*.tfplan
 
-# personal notes, not part of the repo
-docs_learning/
+# planning docs
+docs/planning/
+CLAUDE.md
+CLAUDE.local.md
+.claude/

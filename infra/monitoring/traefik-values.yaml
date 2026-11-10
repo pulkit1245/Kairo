@@ -1,0 +1,36 @@
+# Helm values for traefik/traefik 42.1.3, read by infra/terraform/traefik.tf
+
+ingressClass:
+  enabled: true
+  isDefaultClass: true # generated Ingresses don't need to name a class
+
+ports:
+  web:
+    exposedPort: 80 # http://<slug>.kairo.local on the Mac
+  websecure:
+    expose:
+      default: false # no TLS locally; Cloudflare's tunnel gives the public https link
+
+# Prometheus metrics on :9100. The chart adds prometheus.io/scrape pod
+# annotations, and Prometheus' kubernetes-pods job picks them up.
+# Requests and error codes per Kubernetes service feed the dashboard (FR-56)
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addServicesLabels: true
+
+providers:
+  kubernetesCRD:
+    enabled: false # Kairo only writes plain Ingress objects
+  kubernetesIngress:
+    enabled: true
+
+log:
+  level: WARN
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 192Mi

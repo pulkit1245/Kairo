@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { decideAction } from '../../src/remediation/action/decision.service.js';
 import { parseAlerts } from '../../src/remediation/alert/alert.service.js';
+import { REMEDIATION_ACTIONS } from '../../src/types/index.js';
 
 // trimmed down from a real alertmanager webhook call
 const payload = {
@@ -68,6 +69,17 @@ describe('decideAction', () => {
 
   it('rolls back a crashloop', () => {
     assert.equal(decideAction('KairoCrashLoop').action, 'ROLLBACK');
+  });
+
+  it('scales up on high cpu and high latency', () => {
+    assert.equal(decideAction('KairoHighCpu').action, 'SCALE_UP');
+    assert.equal(decideAction('KairoHighLatency').action, 'SCALE_UP');
+  });
+
+  it('only returns actions from the shared enum', () => {
+    for (const name of ['KairoAppDown', 'KairoOOMKilled', 'KairoCrashLoop', 'KairoHighCpu', 'KairoHighLatency', 'X']) {
+      assert.ok(REMEDIATION_ACTIONS.includes(decideAction(name).action), name);
+    }
   });
 
   it('does nothing for alerts it does not know', () => {
