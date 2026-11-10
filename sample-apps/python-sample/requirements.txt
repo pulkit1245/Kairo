@@ -1,0 +1,2 @@
+# no dependencies: the app only uses the standard library.
+# the file is still here because Kairo detects a Python project by it
