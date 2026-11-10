@@ -1,3 +1,4 @@
+import { env } from '../config/env.config.js';
 import { pingCluster } from '../kubernetes/k8s.client.js';
 import { prisma } from '../db/index.js';
 
@@ -18,5 +19,7 @@ export async function health(_req, res) {
     ok: true,
     db: db ? 'up' : 'down',
     cluster: cluster ? 'up' : 'down',
+    // true = healing records incidents but never touches pods (REMEDIATION_DRY_RUN)
+    dryRun: env.remediationDryRun,
   });
 }

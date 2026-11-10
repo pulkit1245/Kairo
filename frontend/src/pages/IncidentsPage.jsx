@@ -5,9 +5,9 @@ import { RecoveryChart } from '../components/operations/RecoveryChart.jsx';
 import { usePoll } from '../hooks/usePoll.js';
 import { listIncidents } from '../services/api.js';
 
-// P0 only: every app's incidents in one list. In P3 they move into each
-// app's dashboard (screen 07) and this page goes away.
-const POLL_MS = 10_000;
+// Every app's incidents in one feed, newest first, refreshing every 5 s.
+// In P3 they move into each app's dashboard (screen 07) and this page goes away.
+const POLL_MS = 5_000;
 
 export function IncidentsPage() {
   const { data, error, loading } = usePoll(listIncidents, POLL_MS);
@@ -35,7 +35,7 @@ export function IncidentsPage() {
               <RecoveryChart incidents={data} />
             </div>
           </Panel>
-          <Panel title="Incidents" meta={`latest ${data.length} · refreshes every 10 s`}>
+          <Panel title="Incidents" meta={`latest ${data.length} · refreshes every 5 s`}>
             {data.length === 0 ? (
               <PanelMessage>No incidents yet. Alertmanager sends them to POST /api/alerts.</PanelMessage>
             ) : (
