@@ -69,7 +69,11 @@ export function DeploymentPage() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-mono text-headline-xl font-semibold">{run.appName}</h1>
+            <h1 className="font-mono text-headline-xl font-semibold">
+              <Link to={`/apps/${run.appName}`} className="hover:text-primary hover:underline" title="Open the app page">
+                {run.appName}
+              </Link>
+            </h1>
             {run.stack && (
               <span className="rounded border border-outline-variant px-2 py-0.5 font-mono text-code-md text-on-surface-variant">
                 {stackLabel(run.stack)}

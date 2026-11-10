@@ -57,6 +57,7 @@ export const logout = () => postJson('/auth/logout');
 export const listRepos = () => request('/repos');
 export const onboardRepo = (repoFullName) => postJson('/apps', { repoFullName });
 // Try again when the setup PR couldn't be opened (AQ11)
+export const getApp = (slug) => request(`/apps/${encodeURIComponent(slug)}`);
 export const retryPr = (slug) => postJson(`/apps/${encodeURIComponent(slug)}/pr`);
 
 /** @returns {Promise<{ ok: boolean, db: 'up'|'down', cluster: 'up'|'down' }>} */

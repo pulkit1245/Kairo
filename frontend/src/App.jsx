@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router';
 import { RequireAuth } from './components/auth/auth.jsx';
 import { Layout } from './components/common/Layout.jsx';
 import { AddRepoPage } from './pages/AddRepoPage.jsx';
+import { AppPage } from './pages/AppPage.jsx';
 import { DeploymentPage } from './pages/DeploymentPage.jsx';
 import { DeploymentsPage } from './pages/DeploymentsPage.jsx';
 import { IncidentsPage } from './pages/IncidentsPage.jsx';
@@ -23,6 +24,7 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <DeploymentsPage /> },
       { path: '/apps/new', element: <AddRepoPage /> },
+      { path: '/apps/:slug', element: <AppPage /> },
       { path: '/deployments/:id', element: <DeploymentPage /> },
       { path: '/incidents', element: <IncidentsPage /> },
       { path: '*', element: <NotFoundPage /> },
