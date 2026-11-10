@@ -18,6 +18,19 @@ resource "kubernetes_config_map_v1" "alert_rules" {
   }
 }
 
+# The webhook token as a file Alertmanager reads (credentials_file), so it
+# never sits in the Helm values or Alertmanager's config.
+resource "kubernetes_secret_v1" "alert_webhook_token" {
+  metadata {
+    name      = "kairo-alert-webhook-token"
+    namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+    labels    = local.labels
+  }
+  data = {
+    token = var.alert_webhook_token
+  }
+}
+
 resource "helm_release" "prometheus" {
   name       = "prometheus"
   namespace  = kubernetes_namespace_v1.monitoring.metadata[0].name
@@ -31,7 +44,8 @@ resource "helm_release" "prometheus" {
       rules_configmap = kubernetes_config_map_v1.alert_rules.metadata[0].name
     }),
     templatefile("${path.module}/../monitoring/alertmanager/values.yaml", {
-      webhook_url = var.alert_webhook_url
+      webhook_url  = var.alert_webhook_url
+      token_secret = kubernetes_secret_v1.alert_webhook_token.metadata[0].name
     }),
   ]
 

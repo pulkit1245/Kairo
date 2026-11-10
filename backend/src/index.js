@@ -21,6 +21,7 @@ async function main() {
   const server = createApp().listen(env.port, () => {
     log.info(`kairo api listening on http://localhost:${env.port}`);
     if (env.remediationDryRun) log.info('remediation is in DRY RUN mode');
+    if (!env.alertWebhookToken) log.warn('ALERT_WEBHOOK_TOKEN is not set: every /api/alerts call will get 401');
   });
 
   const shutdown = (signal) => {

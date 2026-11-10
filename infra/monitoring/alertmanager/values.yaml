@@ -1,11 +1,18 @@
 # Alertmanager part of the prometheus chart's values.
 # Terraform fills in the webhook URL (var.alert_webhook_url).
-# P1 adds the bearer token (FR-45) and the Kairo alert rules (FR-44).
+# The bearer token (FR-45) comes from Secret kairo-alert-webhook-token,
+# mounted as a file, so it never appears in this config.
 
 alertmanager:
   enabled: true
   persistence:
     enabled: false
+  extraSecretMounts:
+    - name: kairo-webhook-token
+      mountPath: /etc/alertmanager/kairo
+      subPath: ""
+      secretName: ${token_secret}
+      readOnly: true
   resources:
     requests:
       cpu: 10m
@@ -18,6 +25,10 @@ alertmanager:
         webhook_configs:
           - url: "${webhook_url}"
             send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager/kairo/token
     route:
       receiver: kairo
       group_by: [alertname, namespace, app]

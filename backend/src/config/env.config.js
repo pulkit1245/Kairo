@@ -29,4 +29,6 @@ export const env = {
   cloneTimeoutMs: Number(process.env.CLONE_TIMEOUT_MS) || 60_000,
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   remediationDryRun: bool('REMEDIATION_DRY_RUN', true),
+  // shared with Alertmanager (FR-45). Never logged
+  alertWebhookToken: process.env.ALERT_WEBHOOK_TOKEN || null,
 };
