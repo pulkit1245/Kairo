@@ -23,6 +23,9 @@ export const STACKS = Object.freeze(['NODE', 'PYTHON']);
 
 export const APP_HEALTH = Object.freeze(['HEALTHY', 'HEALING', 'NEEDS_ATTENTION']);
 
+// the setup PR (FR-34); null on an app = not tried yet
+export const PR_STATES = Object.freeze(['OPEN', 'MERGED', 'CLOSED', 'FAILED']);
+
 export const FILE_KINDS = Object.freeze([
   'DOCKERFILE',
   'DEPLOYMENT',

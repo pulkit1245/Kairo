@@ -45,6 +45,14 @@ enum GeneratedFileKind {
   ALERT_RULES
 }
 
+// FR-34. FAILED = Kairo couldn't open or update it (AQ11); the preview keeps running
+enum PrState {
+  OPEN
+  MERGED
+  CLOSED
+  FAILED
+}
+
 enum FileOrigin {
   GENERATED
   KEPT_EXISTING
@@ -132,8 +140,10 @@ model App {
   health         AppHealth     @default(HEALTHY)
   replicas       Int           @default(1)
   prNumber       Int?
-  // plain string until P2 decides the values
-  prState        String?
+  // null until Kairo first tries to open the PR (P2, AQ11)
+  prState        PrState?
+  // why the PR couldn't be opened, shown with Try again (AQ11)
+  prError        String?
   createdAt      DateTime      @default(now())
   deletedAt      DateTime?
 

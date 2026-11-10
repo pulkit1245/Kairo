@@ -12,6 +12,7 @@ const PRISMA_ENUM = {
   DEPLOYMENT_STATUSES: 'DeploymentStatus',
   STACKS: 'Stack',
   APP_HEALTH: 'AppHealth',
+  PR_STATES: 'PrState',
   FILE_KINDS: 'GeneratedFileKind',
   FILE_ORIGINS: 'FileOrigin',
   RELEASE_SOURCES: 'ReleaseSource',
