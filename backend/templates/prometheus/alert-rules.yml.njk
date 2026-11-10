@@ -38,11 +38,13 @@ groups:
         annotations:
           summary: "{{ appName }} keeps crashing on startup"
 
-      # share of the {{ cpuLimit }} CPU limit, per pod
+      # share of the {{ cpuLimit }} CPU limit, per pod. A 30 s rate and 15 s
+      # wait so 60 s of Send Traffic trips it (P3): with [1m] and 1 min the
+      # rate needs ~48 s to pass 80% and the load is over before it fires
       - alert: KairoHighCpu
         expr: |
-          sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace="{{ namespace }}", container="{{ appName }}"}[1m])) / {{ cpuLimitCores }} > 0.8
-        for: 1m
+          sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace="{{ namespace }}", container="{{ appName }}"}[30s])) / {{ cpuLimitCores }} > 0.8
+        for: 15s
         labels:
           app: {{ appName }}
         annotations:
