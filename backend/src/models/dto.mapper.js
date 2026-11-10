@@ -2,6 +2,7 @@
 // doesn't have to guess the format.
 // The @returns lines are just so VS Code shows the shape on hover.
 
+import { env } from '../config/env.config.js';
 import { FILE_KINDS } from '../types/index.js';
 import { cloneUrlFor } from '../utils/repoUrl.js';
 
@@ -64,6 +65,8 @@ function prDto(app) {
     number: app.prNumber ?? null,
     url: app.prNumber ? `https://github.com/${app.repoFullName}/pull/${app.prNumber}` : null,
     error: app.prError ?? null,
+    // GitHub names the bot after the App (kairo-devops[bot], not kairo[bot])
+    bot: env.github.appSlug ? `${env.github.appSlug}[bot]` : null,
   };
 }
 

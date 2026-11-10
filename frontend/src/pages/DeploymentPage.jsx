@@ -6,24 +6,38 @@ import { PanelMessage } from '../components/common/Panel.jsx';
 import { runStatus, stackLabel } from '../components/common/status.js';
 import { StatusBadge } from '../components/common/StatusBadge.jsx';
 import { FailurePanel } from '../components/onboarding/FailurePanel.jsx';
+import { FactsPanel } from '../components/onboarding/FactsPanel.jsx';
 import { FilesViewer } from '../components/onboarding/FilesViewer.jsx';
+import { PrCard } from '../components/onboarding/PrCard.jsx';
 import { PreviewPanel } from '../components/onboarding/PreviewPanel.jsx';
 import { Stepper } from '../components/onboarding/Stepper.jsx';
 import { usePoll } from '../hooks/usePoll.js';
 import { createDeployment, getDeployment, onboardRepo } from '../services/api.js';
 
-// FR-8: poll every 3 s while the run is going, stop once it has finished
+// FR-8: poll every 3 s while the run is going. After RUNNING, keep going
+// while the preview's grace window and PR are still to be decided (FR-30,
+// FR-71), then slowly while the PR is open (its state is checked every 60 s)
 const POLL_MS = 3000;
+const PR_OPEN_POLL_MS = 15_000;
+
+export function nextPoll(run, now = Date.now()) {
+  if (!run || !run.finishedAt) return POLL_MS;
+  if (run.status !== 'RUNNING') return null;
+  const r = run.release;
+  const deciding = r && r.status === 'ACTIVE' && !r.healthyAt && now < new Date(r.graceEndsAt).getTime() + 15_000;
+  if (deciding) return POLL_MS;
+  if (run.installed && !run.pr.state && r?.healthyAt) return POLL_MS;
+  if (run.pr.state === 'OPEN') return PR_OPEN_POLL_MS;
+  return null;
+}
 
 // The onboarding view (Stitch screens 04 and 05) for one pipeline run.
 export function DeploymentPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: run, error, loading } = usePoll(
-    () => getDeployment(id),
-    (latest) => (latest && latest.finishedAt ? null : POLL_MS),
-    [id],
-  );
+  // bumped to reload at once, e.g. after Try again on the PR
+  const [refresh, setRefresh] = useState(0);
+  const { data: run, error, loading } = usePoll(() => getDeployment(id), nextPoll, [id, refresh]);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState(null);
 
@@ -96,7 +110,18 @@ export function DeploymentPage() {
           {retryError}
         </p>
       )}
-      {run.status === 'RUNNING' && <PreviewPanel appName={run.appName} />}
+      {run.status === 'RUNNING' && (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <FactsPanel facts={run.facts} assumptions={run.assumptions} />
+          <div className="flex flex-col gap-5">
+            <PreviewPanel appName={run.appName} release={run.release} />
+            <PrCard run={run} onChanged={() => setRefresh((n) => n + 1)} />
+          </div>
+        </div>
+      )}
+      {run.status !== 'RUNNING' && run.facts && Object.keys(run.facts).length > 0 && (
+        <FactsPanel facts={run.facts} assumptions={run.assumptions} />
+      )}
 
       {run.configs?.length > 0 ? (
         <FilesViewer files={run.configs} />

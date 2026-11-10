@@ -56,6 +56,8 @@ export const logout = () => postJson('/auth/logout');
 // the repo picker (FR-3, FR-6)
 export const listRepos = () => request('/repos');
 export const onboardRepo = (repoFullName) => postJson('/apps', { repoFullName });
+// Try again when the setup PR couldn't be opened (AQ11)
+export const retryPr = (slug) => postJson(`/apps/${encodeURIComponent(slug)}/pr`);
 
 /** @returns {Promise<{ ok: boolean, db: 'up'|'down', cluster: 'up'|'down' }>} */
 export const getHealth = () => request('/health');
