@@ -16,6 +16,9 @@ export function toDeploymentDto(row) {
     id: row.id,
     appId: row.appId,
     repoUrl: cloneUrlFor(row.app.repoFullName),
+    repoFullName: row.app.repoFullName,
+    // picked from a GitHub App installation (P2) rather than pasted as a URL
+    installed: Boolean(row.app.installationId),
     appName: row.app.slug,
     status: row.status,
     failedStep: row.failedStep,

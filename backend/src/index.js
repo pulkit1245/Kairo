@@ -1,5 +1,5 @@
 import { createApp } from './app.js';
-import { env } from './config/env.config.js';
+import { env, githubConfigured } from './config/env.config.js';
 import { emptyWorkspace, failInterruptedRuns } from './generator/pipeline.service.js';
 import {
   FLUSH_INTERVAL_MS,
@@ -30,6 +30,9 @@ async function main() {
     log.info(`kairo api listening on http://localhost:${env.port}`);
     if (env.remediationDryRun) log.info('remediation is in DRY RUN mode');
     if (!env.alertWebhookToken) log.warn('ALERT_WEBHOOK_TOKEN is not set: every /api/alerts call will get 401');
+    if (!githubConfigured()) log.warn('the GitHub App is not configured (GITHUB_APP_*, GITHUB_CLIENT_*): sign-in is off');
+    if (!env.sessionSecret) log.warn('SESSION_SECRET is not set: nobody can sign in');
+    if (env.allowedLogins.size === 0) log.warn('ALLOWED_GITHUB_LOGINS is empty: everyone will see "Not invited"');
   });
 
   // incident writes that failed during a database outage are saved once it's back (FR-74)

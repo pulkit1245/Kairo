@@ -31,4 +31,35 @@ export const env = {
   remediationDryRun: bool('REMEDIATION_DRY_RUN', true),
   // shared with Alertmanager (FR-45). Never logged
   alertWebhookToken: process.env.ALERT_WEBHOOK_TOKEN || null,
+
+  // where the browser reaches Kairo. GitHub sends people back to
+  // <appUrl>/api/auth/callback, which Vite proxies to the backend
+  appUrl: (process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, ''),
+
+  // the Kairo GitHub App (FR-1, FR-4). The client secret and the private key
+  // are secrets: read here, used by src/github/, never logged
+  github: {
+    appId: process.env.GITHUB_APP_ID || null,
+    appSlug: process.env.GITHUB_APP_SLUG || null,
+    clientId: process.env.GITHUB_CLIENT_ID || null,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET || null,
+    privateKeyPath: expandHome(process.env.GITHUB_APP_PRIVATE_KEY_PATH || '~/.kairo/kairo-github-app.pem'),
+  },
+
+  // signs the session cookie. Without it nobody can sign in (FR-42)
+  sessionSecret: process.env.SESSION_SECRET || null,
+  // FR-2: GitHub logins that may sign in, comma separated, case doesn't matter
+  allowedLogins: new Set(
+    (process.env.ALLOWED_GITHUB_LOGINS || '')
+      .split(',')
+      .map((l) => l.trim().toLowerCase())
+      .filter(Boolean),
+  ),
 };
+
+export const githubConfigured = () =>
+  Boolean(env.github.appId && env.github.appSlug && env.github.clientId && env.github.clientSecret);
+
+function expandHome(p) {
+  return p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p;
+}
