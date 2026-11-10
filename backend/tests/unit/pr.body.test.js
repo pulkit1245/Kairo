@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { PR_MARKER, prBody, SETUP_BRANCH } from '../../src/generator/pr/pr.body.js';
+import { loadAllYaml } from '@kubernetes/client-node';
+import { generateConfigs } from '../../src/generator/template/config.service.js';
+import { PR_MARKER, prBody, repoCopy, SETUP_BRANCH } from '../../src/generator/pr/pr.body.js';
 
 const files = (dockerfileOrigin = 'GENERATED') => [
   { kind: 'DOCKERFILE', origin: dockerfileOrigin, path: 'Dockerfile' },
@@ -68,5 +70,28 @@ describe('setup PR body (FR-32)', () => {
 
   it('uses the fixed branch name', () => {
     assert.equal(SETUP_BRANCH, 'kairo/setup');
+  });
+});
+
+describe("the repo's copy of the files", () => {
+  const render = (runId) =>
+    generateConfigs({
+      pipelineRunId: runId, appName: 'demo', commitSha: 'a'.repeat(40), namespace: 'kairo-demo',
+      repoFullName: 'PunitXd/demo', defaultBranch: 'main',
+      detected: {
+        stack: 'NODE', port: 3000, startCommand: ['npm', 'start'], existingDockerfile: null, python: null, facts: {}, assumptions: [],
+        node: { version: 22, packageManager: 'npm', corepack: false, installCommand: 'npm ci --omit=dev', ciInstallCommand: 'npm ci', buildCommand: null, pruneCommand: null, testCommand: null },
+      },
+    });
+
+  it('drops the run id from the Deployment, so re-runs of the same commit change nothing', () => {
+    const a = render('run1').map(repoCopy);
+    const b = render('run2').map(repoCopy);
+    assert.deepEqual(a, b);
+    const deployment = render('run1').find((f) => f.kind === 'DEPLOYMENT');
+    const doc = loadAllYaml(repoCopy(deployment))[0];
+    assert.equal(doc.metadata.annotations, undefined);
+    assert.equal(doc.metadata.name, 'demo');
+    assert.ok(deployment.content.includes('kairo.dev/pipeline-run-id'), 'the cluster copy keeps it');
   });
 });

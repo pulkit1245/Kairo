@@ -4,7 +4,7 @@ import { endGrace, GRACE_MS, inGrace } from '../../shipping/grace.service.js';
 import { AppError, NotFoundError } from '../../utils/AppError.js';
 import { ghcrImage } from '../../utils/appNames.js';
 import { createLogger } from '../../utils/logger.js';
-import { commitMessage, PR_TITLE, prBody, SETUP_BRANCH } from './pr.body.js';
+import { commitMessage, PR_TITLE, prBody, repoCopy, SETUP_BRANCH } from './pr.body.js';
 
 const log = createLogger('pr');
 
@@ -108,7 +108,7 @@ async function pushSetupPr(app, run, release) {
   const { data: tree } = await gh.rest.git.createTree({
     ...r,
     base_tree: parent.tree.sha,
-    tree: files.map((f) => ({ path: f.path, mode: '100644', type: 'blob', content: f.content })),
+    tree: files.map((f) => ({ path: f.path, mode: '100644', type: 'blob', content: repoCopy(f) })),
   });
   let committed = false;
   if (tree.sha !== parent.tree.sha) {
