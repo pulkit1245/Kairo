@@ -27,11 +27,13 @@ const windows = new Map(); // slug -> { releaseId, endsAt, timer }
 //   onHealthy(release, app)              e.g. open the setup PR
 //   onUnhealthy(release, app, reason)
 //   onEnd(slug)                          run the alert actions deferred during the window
+// and releaseReady, the Kubernetes check, replaceable so a unit test needs no cluster
 const hooks = {
   isAlerting: () => false,
   onHealthy: async () => {},
   onUnhealthy: async () => {},
   onEnd: async () => {},
+  releaseReady,
 };
 export function configureGrace(h) {
   Object.assign(hooks, h);
@@ -110,7 +112,7 @@ async function checkHealthy(release, app) {
   if (release.status !== 'ACTIVE') return { healthy: false, reason: `the release is ${release.status}` };
   if (hooks.isAlerting(app.slug)) return { healthy: false, reason: 'a Kairo alert is firing for the app' };
   try {
-    const ready = await releaseReady(app.namespace, app.slug, release.imageRef);
+    const ready = await hooks.releaseReady(app.namespace, app.slug, release.imageRef);
     return ready.ready ? { healthy: true } : { healthy: false, reason: ready.detail };
   } catch (err) {
     return { healthy: false, reason: `couldn't read the Deployment (${k8sErrorMessage(err)})` };
