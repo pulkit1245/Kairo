@@ -1,4 +1,4 @@
-import { AppError } from '../utils/AppError.js';
+import { AppError, isDatabaseDown, shortError } from '../utils/AppError.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('http');
@@ -19,6 +19,13 @@ export function errorHandler(err, req, res, _next) {
   const status = err.status;
   if (typeof status === 'number' && status >= 400 && status < 500) {
     res.status(status).json({ error: err.message });
+    return;
+  }
+
+  // Postgres stopped: say so in one line instead of a stack trace on every poll
+  if (isDatabaseDown(err)) {
+    log.warn(`${req.method} ${req.path}: database not reachable (${shortError(err)})`);
+    res.status(503).json({ error: 'The database is not reachable' });
     return;
   }
 

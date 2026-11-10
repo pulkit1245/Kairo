@@ -16,6 +16,30 @@ const log = createLogger('incidents');
 
 const open = new Map();
 const apps = new Map();
+// writes that failed even after their retry, for flushUnsaved() to try again:
+//   { kind: 'save', record, resolvedAt }   an incident that never reached the database
+//   { kind: 'resolve', fingerprint, resolvedAt }   an incident in the database still OPEN
+let outbox = [];
+
+export function queueWrite(item) {
+  outbox.push(item);
+}
+
+// hands over everything queued; whatever fails again is queued again
+export function takeOutbox() {
+  const items = outbox;
+  outbox = [];
+  return items;
+}
+
+// open incidents whose record isn't in the database yet
+export function unsavedOpen() {
+  return [...open.entries()].filter(([, e]) => e.pending).map(([fingerprint, e]) => ({ fingerprint, record: e.pending }));
+}
+
+export function unsavedCount() {
+  return outbox.length + unsavedOpen().length;
+}
 
 export function isOpen(fingerprint) {
   return open.has(fingerprint);
@@ -83,4 +107,5 @@ export async function rebuild() {
 export function _reset() {
   open.clear();
   apps.clear();
+  outbox = [];
 }

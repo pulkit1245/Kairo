@@ -2,7 +2,7 @@ import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
 import { isRolloutInProgress } from '../../state/rollout.state.js';
-import { errorMessage } from '../../utils/AppError.js';
+import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
 import { decideAction } from '../action/decision.service.js';
 import { executeAction } from '../action/executor.service.js';
@@ -12,8 +12,13 @@ const log = createLogger('incidents');
 
 // FR-74: act first, record second. Decisions come from memory (incident.state.js),
 // the action runs, and only then is the database written. A failed write is
-// logged and retried once, and never delays or undoes the action.
+// logged and retried once, and never delays or undoes the action. If the retry
+// fails too, the write waits in memory and flushUnsaved() tries it again every
+// FLUSH_INTERVAL_MS until the database is back, so an outage loses nothing
+// unless the backend itself dies during it.
 export const RETRY_DELAY_MS = 1000;
+export const FLUSH_INTERVAL_MS = 15_000;
+const FAILED = Symbol('write failed');
 
 // returns what happened, so the webhook can count skipped alerts:
 // 'opened' | 'duplicate' | 'unknown-app' | 'resolved' | 'nothing-open'
@@ -60,7 +65,8 @@ async function openIncident(alert) {
 
   // 2. record
   const saved = await withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
-  if (saved) memory.markRecorded(alert.fingerprint, saved.id);
+  if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
+  // else: the record stays in memory as pending, for the resolve or the flush
   return 'opened';
 }
 
@@ -74,22 +80,68 @@ async function resolveIncident(alert) {
       await createIncident(entry.pending, resolvedAt);
       return 1;
     }
-    const openRows = await prisma.incident.findMany({
-      where: { fingerprint: alert.fingerprint, status: 'OPEN' },
-      select: { id: true, startedAt: true },
-    });
-    for (const row of openRows) {
-      await prisma.incident.update({
-        where: { id: row.id },
-        data: { status: 'RESOLVED', resolvedAt, recoverySeconds: recoverySeconds(row.startedAt, resolvedAt) },
-      });
-    }
-    return openRows.length;
+    return resolveRows(alert.fingerprint, resolvedAt);
   });
 
+  if (done === FAILED) {
+    memory.queueWrite(
+      entry?.pending
+        ? { kind: 'save', record: entry.pending, resolvedAt }
+        : { kind: 'resolve', fingerprint: alert.fingerprint, resolvedAt },
+    );
+    log.warn(`${alert.alertName} on ${alert.appName} resolved, not saved yet: queued until the database is back`);
+    return 'resolved';
+  }
   if (!entry && !done) return 'nothing-open';
   log.info(`${alert.alertName} on ${alert.appName} resolved`);
   return 'resolved';
+}
+
+async function resolveRows(fingerprint, resolvedAt) {
+  const openRows = await prisma.incident.findMany({
+    where: { fingerprint, status: 'OPEN' },
+    select: { id: true, startedAt: true },
+  });
+  for (const row of openRows) {
+    await prisma.incident.update({
+      where: { id: row.id },
+      data: { status: 'RESOLVED', resolvedAt, recoverySeconds: recoverySeconds(row.startedAt, resolvedAt) },
+    });
+  }
+  return openRows.length;
+}
+
+// Retries every write still waiting in memory, once each. Called on a timer
+// (src/index.js). Returns how many were saved; failures stay queued.
+let flushing = false;
+export async function flushUnsaved() {
+  if (flushing || memory.unsavedCount() === 0) return 0;
+  flushing = true;
+  let saved = 0;
+  try {
+    for (const { fingerprint, record } of memory.unsavedOpen()) {
+      try {
+        const row = await createIncident(record);
+        memory.markRecorded(fingerprint, row.id);
+        saved++;
+      } catch {
+        // database still down: try again next time
+      }
+    }
+    for (const item of memory.takeOutbox()) {
+      try {
+        if (item.kind === 'save') await createIncident(item.record, item.resolvedAt);
+        else await resolveRows(item.fingerprint, item.resolvedAt);
+        saved++;
+      } catch {
+        memory.queueWrite(item);
+      }
+    }
+  } finally {
+    flushing = false;
+  }
+  if (saved) log.info(`saved ${saved} incident write(s) that were waiting for the database`);
+  return saved;
 }
 
 // One incident with its attempt, in one write. resolvedAt given = save it resolved.
@@ -119,21 +171,23 @@ async function createIncident(record, resolvedAt = null) {
 }
 
 // Runs a database write, retrying once after a short wait (FR-74). Returns the
-// result, or null if both tries failed; the failure is logged, never thrown.
+// result, or FAILED if both tries failed; the failure is logged, never thrown.
 export async function withRetry(what, write, delayMs = RETRY_DELAY_MS) {
   try {
     return await write();
   } catch (first) {
-    log.warn(`could not ${what}: ${errorMessage(first).split('\n')[0]}. Retrying once`);
+    log.warn(`could not ${what}: ${shortError(first)}. Retrying once`);
     await new Promise((r) => setTimeout(r, delayMs));
     try {
       return await write();
     } catch (second) {
-      log.error(`could not ${what} after a retry: ${errorMessage(second).split('\n')[0]}. The action already ran`);
-      return null;
+      log.error(`could not ${what} after a retry: ${shortError(second)}. The action already ran`);
+      return FAILED;
     }
   }
 }
+
+export const WRITE_FAILED = FAILED;
 
 export async function listIncidents(limit = 50) {
   const rows = await prisma.incident.findMany({

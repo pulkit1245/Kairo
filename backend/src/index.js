@@ -1,7 +1,11 @@
 import { createApp } from './app.js';
 import { env } from './config/env.config.js';
 import { emptyWorkspace, failInterruptedRuns } from './generator/pipeline.service.js';
-import { rebuildIncidentState } from './remediation/incident/incident.service.js';
+import {
+  FLUSH_INTERVAL_MS,
+  flushUnsaved,
+  rebuildIncidentState,
+} from './remediation/incident/incident.service.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
 
@@ -27,6 +31,12 @@ async function main() {
     if (env.remediationDryRun) log.info('remediation is in DRY RUN mode');
     if (!env.alertWebhookToken) log.warn('ALERT_WEBHOOK_TOKEN is not set: every /api/alerts call will get 401');
   });
+
+  // incident writes that failed during a database outage are saved once it's back (FR-74)
+  const flushTimer = setInterval(() => {
+    flushUnsaved().catch((err) => log.error('flushing unsaved incidents failed', err));
+  }, FLUSH_INTERVAL_MS);
+  flushTimer.unref();
 
   const shutdown = (signal) => {
     log.info(`${signal} received, shutting down`);

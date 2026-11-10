@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
-import { withRetry } from '../../src/remediation/incident/incident.service.js';
+import { withRetry, WRITE_FAILED } from '../../src/remediation/incident/incident.service.js';
 import * as memory from '../../src/remediation/incident/incident.state.js';
 import { beginRollout, endRollout, isRolloutInProgress } from '../../src/state/rollout.state.js';
 
@@ -24,7 +24,7 @@ describe('withRetry (FR-74)', () => {
   it('gives up after two failures without throwing', async () => {
     let calls = 0;
     const result = await withRetry('x', async () => { calls++; throw new Error('db down'); }, 0);
-    assert.equal(result, null);
+    assert.equal(result, WRITE_FAILED);
     assert.equal(calls, 2);
   });
 });
@@ -44,6 +44,14 @@ describe('incident memory', () => {
     memory.markOpen('fp1', { alertName: 'KairoOOMKilled' });
     memory.markRecorded('fp1', 'inc1');
     assert.deepEqual(memory.close('fp1'), { incidentId: 'inc1', pending: null });
+  });
+
+  it('keeps failed writes queued until they are taken', () => {
+    memory.queueWrite({ kind: 'resolve', fingerprint: 'fp1', resolvedAt: new Date() });
+    memory.markOpen('fp2', { alertName: 'KairoAppDown' });
+    assert.equal(memory.unsavedCount(), 2);
+    assert.equal(memory.takeOutbox().length, 1);
+    assert.deepEqual(memory.unsavedOpen().map((u) => u.fingerprint), ['fp2']);
   });
 
   it('finds a remembered app without the database', async () => {
