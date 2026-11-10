@@ -10,6 +10,11 @@ resource "helm_release" "traefik" {
 
   values = [file("${path.module}/../monitoring/traefik-values.yaml")]
 
+  # Kairo only writes plain Ingress objects (the CRD provider is off in the
+  # values), so don't install Traefik's 25 CRDs. Helm never deletes CRDs on
+  # uninstall, so installing them would break "terraform destroy removes it" (FR-69)
+  skip_crds = true
+
   wait    = true
   timeout = 300
 }

@@ -61,12 +61,12 @@ The backend reaches Prometheus through a port-forward (Traefik doesn't need one)
 kubectl -n monitoring port-forward svc/prometheus-server 9090:80
 ```
 
-Remove everything with `terraform destroy`. Nothing is left behind: both Prometheus and Alertmanager use `emptyDir`, so there are no volume claims.
+Remove everything with `terraform plan -destroy -out=destroy.tfplan` and `terraform apply destroy.tfplan`. Nothing is left behind: Prometheus and Alertmanager use `emptyDir`, so there are no volume claims, and Traefik is installed without its CRDs (`skip_crds`), which Helm would otherwise leave behind on uninstall.
 
 ### Checks
 
 ```bash
-kubectl get pods -n traefik -n monitoring          # all Running
+kubectl get pods -A                                # traefik and monitoring pods Running
 curl -i http://localhost/                          # 404 from Traefik = it answers
 kubectl auth can-i create deployments -n kairo-apps --as=system:serviceaccount:kairo:kairo-platform
 ```
