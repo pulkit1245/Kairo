@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { dockerEnv } from '../../utils/docker.js';
 
 // BUILDING (FR-27, FR-28): docker build with Docker Desktop's engine. The
 // kubeadm cluster uses the same engine, so the image is visible to it at once,
@@ -6,16 +7,6 @@ import { spawn } from 'node:child_process';
 
 export const BUILD_TIMEOUT_MS = 10 * 60 * 1000;
 export const LOG_TAIL_LINES = 80;
-
-// Only what the docker CLI needs. Same idea as the git env in clone.service.js:
-// don't hand the whole backend environment (tokens, database URL) to a build.
-const PASS_THROUGH = ['PATH', 'HOME', 'DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG', 'TMPDIR'];
-
-function dockerEnv() {
-  const env = { DOCKER_BUILDKIT: '1', NO_COLOR: '1' };
-  for (const key of PASS_THROUGH) if (process.env[key]) env[key] = process.env[key];
-  return env;
-}
 
 // keeps the newest `max` lines, dropping ANSI colour codes
 export function lineTail(max = LOG_TAIL_LINES) {

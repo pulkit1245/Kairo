@@ -26,7 +26,13 @@ Two settings in `.env` come from the platform set-up in `infra/README.md`:
 
 `curl localhost:4000/api/health` should say `"db":"up","cluster":"up"`. `cluster` is `down` until Docker Desktop's Kubernetes (kubeadm provisioner, context `docker-desktop`) is running.
 
-The API listens on every interface, not only localhost, because Alertmanager inside the cluster calls it at `http://host.docker.internal:4000/api/alerts`. That endpoint needs the bearer token (FR-45); sign-in on the other endpoints arrives in P2 (FR-42).
+The API listens on every interface, not only localhost, because Alertmanager inside the cluster calls it at `http://host.docker.internal:4000/api/alerts`. That endpoint needs the bearer token (FR-45). Every other endpoint needs sign-in (FR-42).
+
+### Sign-in and the GitHub App (P2)
+
+Sign-in uses the Kairo GitHub App's user authorization. `.env` needs the App's `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, the path of its private key (`GITHUB_APP_PRIVATE_KEY_PATH`, default `~/.kairo/kairo-github-app.pem`, outside the repo), a `SESSION_SECRET` (`openssl rand -hex 32`) and `ALLOWED_GITHUB_LOGINS`. The App's callback URL is `<APP_URL>/api/auth/callback`, with `APP_URL` defaulting to the Vite dev server, `http://localhost:5173`. Without these the backend still starts, warns, and every endpoint answers 401.
+
+Installation tokens are minted for each request (`src/github/github.client.js` gives Octokit a cache that keeps nothing) and never stored, logged or sent to the browser (FR-5).
 
 ## Data model
 
@@ -52,8 +58,14 @@ Full shapes are in [`docs/api/README.md`](../docs/api/README.md).
 
 | | | |
 |---|---|---|
+| GET | `/api/auth/login`, `/api/auth/callback`, `/api/auth/install` | Sign-in with the Kairo GitHub App and its install return (browser redirects) |
+| GET, POST | `/api/auth/me`, `/api/auth/logout` | Who is signed in; sign out |
 | GET | `/api/health` | API, database and cluster status |
-| POST | `/api/deployments` | `{ "repoUrl": "https://github.com/owner/repo" }` → 202, the pipeline runs in the background |
+| GET | `/api/repos` | Repos your installations can see, for the picker |
+| POST | `/api/apps` | `{ "repoFullName": "owner/repo" }` → 202, onboarding from a picked repo |
+| GET | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR |
+| POST | `/api/apps/:slug/pr` | Try the setup PR again |
+| POST | `/api/deployments` | `{ "repoUrl": "https://github.com/owner/repo" }` → 202. Testing shortcut, hidden from the UI |
 | GET | `/api/deployments` | Latest 20 pipeline runs |
 | GET | `/api/deployments/:id` | One run with its generated files. Poll this while it runs |
 | POST | `/api/alerts` | Alertmanager webhook receiver |

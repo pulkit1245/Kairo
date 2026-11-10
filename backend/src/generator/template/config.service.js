@@ -1,4 +1,4 @@
-import { appHost, appImage } from '../../utils/appNames.js';
+import { appHost, appImage, ghcrImage } from '../../utils/appNames.js';
 import { render } from './renderer.service.js';
 import { validateConfigs } from './validate.service.js';
 
@@ -18,33 +18,31 @@ const DOCKERFILE_TEMPLATE = {
   PYTHON: 'docker/python.Dockerfile.njk',
 };
 
-// input: { pipelineRunId, appName (the slug), commitSha, namespace, detected }
-// where `detected` is whatever detectStack() returned.
-// Returns [{ kind, origin, path, content }] (GeneratedConfig in src/types), after
-// checking every file (FR-26). A bad file throws an AppError, which ends the
-// run at GENERATING.
+export const WORKFLOW_PATH = '.github/workflows/kairo.yml';
+
+// input: { pipelineRunId, appName (the slug), commitSha, namespace,
+//          repoFullName, defaultBranch, detected }
+// where `detected` is what detectStack() returned.
+// Returns [{ kind, origin, path, content, facts? }] (GeneratedConfig in src/types),
+// after checking every file (FR-26). A bad file throws an AppError, which ends
+// the run at GENERATING. The Dockerfile row carries the facts and assumptions
+// (FR-15), for the onboarding view and the PR.
 export function generateConfigs(input) {
   const { detected } = input;
+  const ctx = configContext(input);
 
-  const ctx = {
-    pipelineRunId: input.pipelineRunId,
-    appName: input.appName,
-    namespace: input.namespace,
-    host: appHost(input.appName),
-    image: appImage(input.appName, input.commitSha),
-    port: detected.port,
-    startCommand: detected.startCommand,
-    healthPath: '/',
-    replicas: 1,
-    ...RESOURCES,
-  };
+  // FR-11, FR-25: a Dockerfile in the repo is kept untouched
+  const dockerfile = detected.existingDockerfile
+    ? { kind: 'DOCKERFILE', origin: 'KEPT_EXISTING', path: 'Dockerfile', content: detected.existingDockerfile }
+    : file('DOCKERFILE', 'Dockerfile', render(DOCKERFILE_TEMPLATE[detected.stack], ctx));
+  dockerfile.facts = { facts: detected.facts, assumptions: detected.assumptions };
 
-  // TODO(P2): workflow (FR-21)
   const files = [
-    file('DOCKERFILE', 'Dockerfile', render(DOCKERFILE_TEMPLATE[detected.stack], ctx)),
+    dockerfile,
     file('DEPLOYMENT', 'k8s/deployment.yaml', render('k8s/deployment.yaml.njk', ctx)),
     file('SERVICE', 'k8s/service.yaml', render('k8s/service.yaml.njk', ctx)),
     file('INGRESS', 'k8s/ingress.yaml', render('k8s/ingress.yaml.njk', ctx)),
+    file('WORKFLOW', WORKFLOW_PATH, render('ci/kairo.yml.njk', ctx.workflow)),
     file('ALERT_RULES', 'k8s/alert-rules.yml', render('prometheus/alert-rules.yml.njk', ctx)),
   ];
 
@@ -52,7 +50,42 @@ export function generateConfigs(input) {
   return files;
 }
 
-// everything is GENERATED until P2 learns to keep an existing Dockerfile (FR-25)
+// What the templates and the FR-26 checks both read. Exported for the tests.
+export function configContext(input) {
+  const { detected } = input;
+  return {
+    pipelineRunId: input.pipelineRunId,
+    appName: input.appName,
+    namespace: input.namespace,
+    host: appHost(input.appName),
+    image: appImage(input.appName, input.commitSha),
+    port: detected.port,
+    startCommand: detected.startCommand,
+    node: detected.node,
+    python: detected.python,
+    healthPath: '/',
+    replicas: 1,
+    ...RESOURCES,
+    workflow: {
+      // GitHub's own ${{ ... }} expressions, which Nunjucks would otherwise read as its own
+      gh: (expr) => `\${{ ${expr} }}`,
+      image: ghcrImage(input.repoFullName),
+      repoFullName: input.repoFullName,
+      defaultBranch: input.defaultBranch,
+      dockerfile: null,
+      // tests run only if they're real (FR-13, FR-24); Node only until P4
+      test: detected.node?.testCommand
+        ? {
+            nodeVersion: detected.node.version,
+            corepack: detected.node.corepack,
+            installCommand: detected.node.ciInstallCommand,
+            testCommand: detected.node.testCommand,
+          }
+        : null,
+    },
+  };
+}
+
 function file(kind, path, content) {
   return { kind, origin: 'GENERATED', path, content };
 }

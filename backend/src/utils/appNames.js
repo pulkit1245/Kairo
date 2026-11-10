@@ -11,3 +11,7 @@ export const appHost = (slug) => `${slug}.kairo.local`;
 // built by Docker Desktop's engine, which the kubeadm cluster reads directly (FR-27).
 // full commit sha as the tag (FR-22, M21); the UI shows 7 characters
 export const appImage = (slug, commitSha) => `kairo/${slug}:${commitSha}`;
+
+// where the generated workflow pushes (FR-24): GHCR rejects upper case, so the
+// repo name is lowered (P0 spike). The tag is the full commit sha
+export const ghcrImage = (repoFullName) => `ghcr.io/${repoFullName.toLowerCase()}`;

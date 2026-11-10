@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Icon } from '../common/Icon.jsx';
+import { HealthCountdown } from './HealthCountdown.jsx';
 
 // Where the running app answers. Traefik routes <slug>.kairo.local on
 // localhost:80 (FR-23). The public tunnel link replaces this in P4.
-export function PreviewPanel({ appName }) {
+export function PreviewPanel({ appName, release }) {
   const host = `${appName}.kairo.local`;
   const curl = `curl -H "Host: ${host}" http://localhost/`;
   const [copied, setCopied] = useState(false);
@@ -43,6 +44,7 @@ export function PreviewPanel({ appName }) {
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
+      <HealthCountdown release={release} />
     </section>
   );
 }

@@ -40,6 +40,8 @@ export const STACKS = Object.freeze(['NODE', 'PYTHON']);
  * @property {string} id                  the PipelineRun id
  * @property {string} appId
  * @property {string} repoUrl             https://github.com/owner/repo.git
+ * @property {string} repoFullName        owner/repo
+ * @property {boolean} installed          onboarded through the GitHub App (repo picker), not the URL shortcut
  * @property {string} appName             the App's slug
  * @property {string} status              one of DEPLOYMENT_STATUSES
  * @property {string | null} failedStep   the step it was on when it failed

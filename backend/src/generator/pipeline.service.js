@@ -10,6 +10,8 @@ import {
   putAlertRules,
   waitForRollout,
 } from '../kubernetes/k8s.client.js';
+import { startGrace } from '../shipping/grace.service.js';
+import { pruneImages } from '../shipping/prune.service.js';
 import { beginRollout, endRollout } from '../state/rollout.state.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
@@ -71,7 +73,7 @@ export async function runPipeline(runId) {
     await moveTo(runId, step, { commitSha });
     await prisma.app.update({ where: { id: app.id }, data: { defaultBranch: branch } });
     const detected = await detectStack(dir);
-    log.info(`${app.slug}: looks like ${detected.stack}`);
+    log.info(`${app.slug}: looks like ${detected.stack ?? 'an unknown stack'}${detected.existingDockerfile ? ', keeping its Dockerfile' : ''}`);
 
     step = 'GENERATING';
     await moveTo(runId, step);
@@ -83,6 +85,8 @@ export async function runPipeline(runId) {
       appName: app.slug,
       commitSha,
       namespace,
+      repoFullName: app.repoFullName,
+      defaultBranch: branch,
       detected,
     });
     await prisma.generatedFile.createMany({
@@ -93,10 +97,12 @@ export async function runPipeline(runId) {
     step = 'BUILDING';
     await moveTo(runId, step);
     const imageRef = appImage(app.slug, commitSha);
-    // the generated Dockerfile sits next to the clone, not in it, so the build
-    // context is exactly the repo. .git isn't needed any more
-    const dockerfile = `${dir}.Dockerfile`;
-    await writeFile(dockerfile, byKind.DOCKERFILE.content);
+    // a kept Dockerfile is built where it is (FR-25). A generated one sits next
+    // to the clone, not in it, so the build context is exactly the repo.
+    // .git isn't needed any more
+    const kept = byKind.DOCKERFILE.origin === 'KEPT_EXISTING';
+    const dockerfile = kept ? path.join(dir, 'Dockerfile') : `${dir}.Dockerfile`;
+    if (!kept) await writeFile(dockerfile, byKind.DOCKERFILE.content);
     await rm(path.join(dir, '.git'), { recursive: true, force: true });
     const build = await buildImage({ contextDir: dir, dockerfile, tag: imageRef });
     if (!build.ok) throw new StepError(build.reason, build.logTail);
@@ -125,8 +131,14 @@ export async function runPipeline(runId) {
     // only a ready app gets alert rules: rules on a broken preview would fire
     // for something that never worked
     await putAlertRules(app.slug, byKind.ALERT_RULES.content);
-    await recordRelease(app.id, applied, 'ACTIVE');
+    const release = await recordRelease(app.id, applied, 'ACTIVE');
     await prisma.app.update({ where: { id: app.id }, data: { replicas: 1 } });
+    // FR-71: every rollout, the preview included, starts a grace window. At its
+    // end the release is marked healthy or not, and a healthy preview of a
+    // picked repo gets its PR (FR-30, generator/pr via the hook in src/index.js)
+    startGrace(release, { ...app, namespace });
+    // FR-38: only the last 3 releases keep their image
+    await pruneImages(app.id);
 
     await moveTo(runId, 'RUNNING', { finishedAt: new Date() });
     log.info(`${app.slug}: RUNNING in ${Math.round((Date.now() - started) / 1000)} s`);
@@ -154,14 +166,16 @@ export async function runPipeline(runId) {
   }
 }
 
-// A new ACTIVE release supersedes the previous ACTIVE one; a FAILED one changes nothing else.
+// A new ACTIVE release supersedes the previous ACTIVE one; a FAILED one changes
+// nothing else. Returns the new release.
 async function recordRelease(appId, { imageRef, commitSha, commitMessage }, status) {
   const data = { appId, imageRef, commitSha, commitMessage, source: 'PREVIEW', status };
   if (status !== 'ACTIVE') return prisma.release.create({ data });
-  return prisma.$transaction([
+  const [, release] = await prisma.$transaction([
     prisma.release.updateMany({ where: { appId, status: 'ACTIVE' }, data: { status: 'SUPERSEDED' } }),
     prisma.release.create({ data }),
   ]);
+  return release;
 }
 
 function moveTo(id, status, extra = {}) {

@@ -4,7 +4,124 @@ All endpoints are under `/api` on the backend (`http://localhost:4000`) and retu
 
 The enum values below are fixed. They live in `backend/src/types/`, the Prisma schema and `frontend/src/types/enums.js`, and a test keeps the three equal.
 
-State as of P1. Sign-in (P2) and the app, metrics, logs, rollback, test panel and delete endpoints (P2, P3) aren't here yet.
+State as of P2b. The app page, metrics, logs, rollback, test panel and delete endpoints (P2c, P3) aren't here yet.
+
+## Sign-in (FR-1, FR-2, FR-42)
+
+Every endpoint needs a signed-in user whose GitHub login is in `ALLOWED_GITHUB_LOGINS`, except `POST /api/alerts` (bearer token) and `/api/auth/*`. Without one: `401 { "error": "Sign in first" }`.
+
+The session is an httpOnly, `SameSite=Lax` cookie, `kairo_session`, signed with `SESSION_SECRET` and valid for 12 hours. It holds the user's id and login, nothing from GitHub. The allow-list is checked again on every request, so removing a login signs that person out at once.
+
+| Method and path | What it does |
+| --- | --- |
+| `GET /api/auth/login` | 302 to GitHub's sign-in page for the Kairo GitHub App, with a one-time `state` cookie |
+| `GET /api/auth/callback` | Where GitHub sends the browser back, after sign-in and after installing the App. 302 to `/` (signed in), `/apps/new` (after an install), `/not-invited?login=<login>` (not on the allow-list) or `/signin?error=<reason>` |
+| `GET /api/auth/install` | 302 to the App's install page, which also changes which repos an existing installation sees. Signed in only |
+| `GET /api/auth/me` | The signed-in user, or 401 |
+| `POST /api/auth/logout` | 204, clears the cookie |
+
+`GET /api/auth/me`:
+
+```json
+{
+  "login": "PunitXd",
+  "avatarUrl": "https://avatars.githubusercontent.com/u/1?v=4",
+  "installUrl": "/api/auth/install",
+  "installations": [{ "id": "cm...", "accountLogin": "PunitXd" }]
+}
+```
+
+`/signin?error=` reasons: `not-configured` (GitHub App settings or `SESSION_SECRET` missing), `cancelled`, `no-code`, `state` (expired or started in another tab), `github` (GitHub didn't answer), `sign-in-first` (an install return without a session), `account-mismatch` (GitHub came back as another account).
+
+GitHub's user token is used only inside the callback (who are you, which installations can you reach) and then revoked. Installation tokens are minted for each request and never stored, logged or sent to the browser (FR-5).
+
+## GET /api/repos
+
+The repo picker (FR-3, FR-6): every repo the user's installations can see, newest push first.
+
+```json
+{
+  "installations": [{ "id": "cm...", "accountLogin": "PunitXd", "repoCount": 4 }],
+  "repos": [
+    {
+      "fullName": "PunitXd/kairo-node-sample",
+      "private": false,
+      "defaultBranch": "main",
+      "pushedAt": "2026-11-10T09:12:00Z",
+      "htmlUrl": "https://github.com/PunitXd/kairo-node-sample",
+      "installationId": "cm...",
+      "disabledReason": null,
+      "app": { "id": "cm...", "slug": "kairo-node-sample" }
+    }
+  ],
+  "limit": { "running": 2, "max": 3 }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `disabledReason` | `"Private repos aren't supported yet"` for private repos, else `null` |
+| `app` | The Kairo app this repo already is, else `null` |
+| `limit.running` | Apps that count against the limit (FR-9); `null` if the cluster can't be reached |
+
+An installation that was removed on GitHub is marked suspended and left out. `502` if GitHub doesn't answer.
+
+## POST /api/apps
+
+Starts onboarding from a picked repo (FR-3). Body `{ "repoFullName": "owner/repo" }`. `202` with a [Deployment](#deployment), the same as `POST /api/deployments`. A repo that is already an app gets a new run.
+
+| Status | When |
+| --- | --- |
+| `400` | `repoFullName` isn't `owner/repo`, or the repo is private |
+| `404` | None of your installations can see the repo |
+| `409` | Limit of 3 running apps reached (FR-9) |
+| `502` | GitHub didn't answer |
+| `503` | The cluster can't be reached, so the limit can't be checked |
+
+## GET /api/apps/:slug
+
+The app page (since P2c): header, active release and the last 10 releases. 404 for an unknown or deleted app.
+
+```json
+{
+  "slug": "kairo-node-sample",
+  "repoFullName": "PunitXd/kairo-node-sample",
+  "repoUrl": "https://github.com/PunitXd/kairo-node-sample",
+  "defaultBranch": "main",
+  "installed": true,
+  "stack": "NODE",
+  "health": "HEALTHY",
+  "autoHeal": true,
+  "replicas": 1,
+  "publicUrl": null,
+  "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
+  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true },
+  "releases": [ "…same shape, newest first…" ],
+  "pr": { "state": "MERGED", "number": 1, "url": "https://github.com/PunitXd/kairo-node-sample/pull/1", "error": null, "bot": "kairo-devops[bot]" },
+  "watchingGhcr": true
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `release` | The `ACTIVE` release, or `null` |
+| `releases[].source` | `PREVIEW` (built on the laptop during onboarding) or `GHCR` (built by the repo's workflow, rolled out by Kairo) |
+| `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
+| `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
+| `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
+
+## POST /api/apps/:slug/pr
+
+Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy, Kairo opens or updates the PR; if it wasn't, Kairo checks it again first (FR-72) and opens the PR only if it passes. Returns the app's PR fields:
+
+```json
+{ "prState": "OPEN", "prNumber": 3, "prError": null }
+```
+
+| Status | When |
+| --- | --- |
+| `404` | No such app among your installations |
+| `409` | The PR is already merged, the preview is still in its grace window, or there's no running preview |
 
 ## GET /api/health
 
@@ -17,6 +134,8 @@ State as of P1. Sign-in (P2) and the app, metrics, logs, rollback, test panel an
 **Changed in P1:** added `dryRun`.
 
 ## POST /api/deployments
+
+**Since P2:** a testing shortcut, behind sign-in and hidden from the UI (AQ10). The UI onboards through `POST /api/apps`.
 
 Starts onboarding for a public GitHub repo. Returns `202` with a Deployment straight away; the pipeline runs in the background.
 
@@ -51,6 +170,8 @@ A "deployment" is one pipeline run plus a few fields from its app.
   "id": "cmwak1al20001sa8as8n96zay",
   "appId": "cmwajzqex0003sazk5mt2kra8",
   "repoUrl": "https://github.com/heroku/node-js-getting-started.git",
+  "repoFullName": "heroku/node-js-getting-started",
+  "installed": false,
   "appName": "node-js-getting-started",
   "status": "GENERATING",
   "failedStep": null,
@@ -61,8 +182,21 @@ A "deployment" is one pipeline run plus a few fields from its app.
   "explanation": null,
   "startedAt": "2026-11-10T10:35:50.000Z",
   "finishedAt": "2026-11-10T10:35:53.000Z",
+  "pr": { "state": "OPEN", "number": 3, "url": "https://github.com/PunitXd/kairo-node-sample/pull/3", "error": null, "bot": "kairo-devops[bot]" },
+  "facts": {
+    "packageManager": { "value": "npm", "source": "rule", "from": "package-lock.json" },
+    "nodeVersion": { "value": 22, "source": "default", "from": "no engines.node in package.json" }
+  },
+  "assumptions": ["The app listens on $PORT (3000) on 0.0.0.0."],
+  "release": {
+    "id": "cm...",
+    "status": "ACTIVE",
+    "deployedAt": "2026-11-10T10:35:53.000Z",
+    "healthyAt": null,
+    "graceEndsAt": "2026-11-10T10:36:53.000Z"
+  },
   "configs": [
-    { "kind": "DOCKERFILE", "origin": "GENERATED", "path": "Dockerfile", "content": "FROM node:20-alpine\n..." }
+    { "kind": "DOCKERFILE", "origin": "GENERATED", "path": "Dockerfile", "content": "FROM node:20-slim\n..." }
   ]
 }
 ```
@@ -71,15 +205,21 @@ A "deployment" is one pipeline run plus a few fields from its app.
 | --- | --- |
 | `id` | The pipeline run's id |
 | `appName` | The app's slug: its Kubernetes name and the `app` label on its alerts |
+| `installed` | `true` when the app was picked from a GitHub App installation (`POST /api/apps`), `false` for the URL shortcut. Retry uses the same route |
 | `status` | `CLONING`, `DETECTING`, `GENERATING`, `BUILDING`, `DEPLOYING`, `RUNNING` or `FAILED` |
 | `failedStep` | The step it was on when it failed, else `null` |
-| `stack` | `NODE`, `PYTHON` or `null` before detection |
+| `stack` | `NODE`, `PYTHON`, or `null` before detection or for a repo with only a Dockerfile |
 | `failureReason` | Readable reason when `FAILED`, one line. E.g. `Build failed (docker exited with code 1)` or `App didn't answer on $PORT (3000) within 3 minutes (CrashLoopBackOff)` |
 | `logTail` | When the build failed: its last 80 log lines (FR-28). Otherwise `[]` |
 | `explanation` | Gemini's explanation of a failure (P4), else `null` |
 | `finishedAt` | `null` while the run is still going. Set when it ends, at `RUNNING` or `FAILED` |
 | `configs[].kind` | `DOCKERFILE`, `DEPLOYMENT`, `SERVICE`, `INGRESS`, `WORKFLOW` or `ALERT_RULES` |
-| `configs[].origin` | `GENERATED`, or `KEPT_EXISTING` when the repo already had the file (P2) |
+| `configs[].origin` | `GENERATED`, or `KEPT_EXISTING` when the repo already had the file (FR-25). A kept Dockerfile is built as it is and left out of the PR |
+| `pr.state` | `OPEN`, `MERGED`, `CLOSED`, `FAILED` (with `pr.error`), or `null` before Kairo has tried (FR-34, AQ11). On every deployment |
+| `pr.bot` | The account the PR comes from: the GitHub App's bot, `<app slug>[bot]` |
+| `facts` | Detail only. Each detected fact: `value`, `source` (`rule` = read from the repo, `default`) and `from` (FR-15) |
+| `assumptions` | Detail only. What Kairo assumed, also listed in the PR |
+| `release` | Detail only. The preview release this run produced: `healthyAt` is set once it passes its 60 s grace window (`graceEndsAt`) (FR-71, FR-72). `null` before `RUNNING` |
 
 The image tag is the full commit sha: `kairo/<appName>:<commitSha>`. A run that reaches `RUNNING` records an `ACTIVE` release; the app answers through Traefik on `http://<appName>.kairo.local` (`curl -H "Host: <appName>.kairo.local" http://localhost/`).
 

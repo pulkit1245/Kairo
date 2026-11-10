@@ -2,6 +2,7 @@
 // doesn't have to guess the format.
 // The @returns lines are just so VS Code shows the shape on hover.
 
+import { env } from '../config/env.config.js';
 import { FILE_KINDS } from '../types/index.js';
 import { cloneUrlFor } from '../utils/repoUrl.js';
 
@@ -16,6 +17,9 @@ export function toDeploymentDto(row) {
     id: row.id,
     appId: row.appId,
     repoUrl: cloneUrlFor(row.app.repoFullName),
+    repoFullName: row.app.repoFullName,
+    // picked from a GitHub App installation (P2) rather than pasted as a URL
+    installed: Boolean(row.app.installationId),
     appName: row.app.slug,
     status: row.status,
     failedStep: row.failedStep,
@@ -27,15 +31,87 @@ export function toDeploymentDto(row) {
     explanation: row.explanation,
     startedAt: row.startedAt.toISOString(),
     finishedAt: iso(row.finishedAt),
+    pr: prDto(row.app),
   };
 
-  // only the detail endpoint loads the files
+  // only the detail endpoint loads the files and the release
+  if (row.files) {
+    // facts and assumptions ride on the Dockerfile row (config.service.js)
+    const facts = row.files.find((f) => f.kind === 'DOCKERFILE')?.facts ?? {};
+    dto.facts = facts.facts ?? {};
+    dto.assumptions = facts.assumptions ?? [];
+    dto.release = row.release
+      ? {
+          id: row.release.id,
+          status: row.release.status,
+          deployedAt: iso(row.release.deployedAt),
+          healthyAt: iso(row.release.healthyAt),
+          graceEndsAt: iso(new Date(row.release.deployedAt.getTime() + row.release.graceMs)),
+        }
+      : null;
+  }
   if (row.files) {
     dto.configs = [...row.files]
       .sort((a, b) => FILE_KINDS.indexOf(a.kind) - FILE_KINDS.indexOf(b.kind))
       .map((f) => ({ kind: f.kind, origin: f.origin, path: f.path, content: f.content }));
   }
   return dto;
+}
+
+// the setup PR (FR-34); state null = Kairo hasn't tried yet
+function prDto(app) {
+  return {
+    state: app.prState ?? null,
+    number: app.prNumber ?? null,
+    url: app.prNumber ? `https://github.com/${app.repoFullName}/pull/${app.prNumber}` : null,
+    error: app.prError ?? null,
+    // GitHub names the bot after the App (kairo-devops[bot], not kairo[bot])
+    bot: env.github.appSlug ? `${env.github.appSlug}[bot]` : null,
+  };
+}
+
+/**
+ * The app page header and release list (P2c, Stitch 07).
+ * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
+ * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38) }
+ */
+export function toAppDto(row, { graceMs, storedImages }) {
+  const run = row.pipelineRuns?.[0] ?? null;
+  const release = (r) => ({
+    id: r.id,
+    commitSha: r.commitSha,
+    commitMessage: r.commitMessage,
+    imageRef: r.imageRef,
+    source: r.source,
+    status: r.status,
+    deployedAt: iso(r.deployedAt),
+    healthyAt: iso(r.healthyAt),
+    graceEndsAt: iso(new Date(r.deployedAt.getTime() + graceMs)),
+    // FR-38: pruned images can't be rolled back to (FR-50)
+    imageStored: storedImages.has(r.imageRef),
+  });
+  const active = row.releases.find((r) => r.status === 'ACTIVE');
+  return {
+    id: row.id,
+    slug: row.slug,
+    repoFullName: row.repoFullName,
+    repoUrl: `https://github.com/${row.repoFullName}`,
+    defaultBranch: row.defaultBranch,
+    installed: Boolean(row.installationId),
+    stack: row.stack,
+    health: row.health,
+    autoHeal: row.autoHeal,
+    replicas: row.replicas,
+    publicUrl: row.publicUrl,
+    pipeline: run
+      ? { id: run.id, status: run.status, failedStep: run.failedStep, startedAt: iso(run.startedAt), finishedAt: iso(run.finishedAt) }
+      : null,
+    release: active ? release(active) : null,
+    releases: row.releases.map(release),
+    pr: prDto(row),
+    // FR-35: Kairo rolls out new GHCR images once the setup PR is merged
+    watchingGhcr: row.prState === 'MERGED',
+  };
 }
 
 /**

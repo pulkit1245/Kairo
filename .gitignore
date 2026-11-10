@@ -17,6 +17,8 @@ coverage/
 *.tfplan
 # holds the alert webhook token
 *.tfvars
+# GitHub App private key (PQ8); it lives in ~/.kairo, this is a safety net
+*.pem
 
 # planning docs
 docs/planning/

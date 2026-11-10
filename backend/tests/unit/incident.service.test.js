@@ -40,10 +40,19 @@ describe('incident memory', () => {
     assert.equal(memory.isOpen('fp1'), false);
   });
 
-  it('drops the pending record once it is in the database', () => {
-    memory.markOpen('fp1', { alertName: 'KairoOOMKilled' });
+  it('drops the pending record once it is in the database, and keeps the app', () => {
+    memory.markOpen('fp1', { alertName: 'KairoOOMKilled', slug: 'demo' });
     memory.markRecorded('fp1', 'inc1');
-    assert.deepEqual(memory.close('fp1'), { incidentId: 'inc1', pending: null });
+    assert.deepEqual(memory.close('fp1'), { incidentId: 'inc1', pending: null, slug: 'demo', deferred: null });
+  });
+
+  it('knows which apps have an open alert (FR-72)', () => {
+    memory.markOpen('fp1', { alertName: 'KairoOOMKilled', slug: 'demo' });
+    memory.markRecorded('fp1', 'inc1');
+    assert.equal(memory.isAlerting('demo'), true);
+    assert.equal(memory.isAlerting('other'), false);
+    memory.close('fp1');
+    assert.equal(memory.isAlerting('demo'), false);
   });
 
   it('keeps failed writes queued until they are taken', () => {
@@ -52,6 +61,19 @@ describe('incident memory', () => {
     assert.equal(memory.unsavedCount(), 2);
     assert.equal(memory.takeOutbox().length, 1);
     assert.deepEqual(memory.unsavedOpen().map((u) => u.fingerprint), ['fp2']);
+  });
+
+  it('keeps a deferred action until it is taken, once (FR-71)', () => {
+    const deferred = { action: 'RESTART', target: { alertName: 'KairoAppDown', pod: 'demo-1' } };
+    memory.markOpen('fp1', { alertName: 'KairoAppDown', slug: 'demo' }, deferred);
+    memory.markOpen('fp2', { alertName: 'KairoHighCpu', slug: 'demo' });
+    memory.markOpen('fp3', { alertName: 'KairoAppDown', slug: 'other' }, { action: 'RESTART', target: {} });
+    memory.markRecorded('fp1', 'inc1');
+    assert.deepEqual(memory.deferredFor('demo'), ['fp1']);
+    assert.deepEqual(memory.takeDeferred('fp1'), deferred);
+    assert.equal(memory.takeDeferred('fp1'), null);
+    assert.deepEqual(memory.deferredFor('demo'), []);
+    assert.equal(memory.isOpen('fp1'), true);
   });
 
   it('finds a remembered app without the database', async () => {

@@ -25,7 +25,7 @@ export function DeploymentTable({ deployments }) {
           {deployments.map((d) => (
             <tr key={d.id} className="hover:bg-surface-container">
               <td className={td}>
-                <Link to={`/deployments/${d.id}`} className="font-medium hover:text-primary hover:underline">
+                <Link to={`/apps/${d.appName}`} className="block font-medium hover:text-primary hover:underline">
                   {d.appName}
                 </Link>
                 <a
@@ -38,7 +38,9 @@ export function DeploymentTable({ deployments }) {
                 </a>
               </td>
               <td className={td}>
-                <StatusBadge status={runStatus(d)} />
+                <Link to={`/deployments/${d.id}`} className="hover:underline" title="Open this run">
+                  <StatusBadge status={runStatus(d)} />
+                </Link>
                 {d.failureReason && (
                   <p className="mt-1 max-w-md text-body-sm text-error">
                     {d.failedStep && <span className="font-mono">at {d.failedStep.toLowerCase()}: </span>}
