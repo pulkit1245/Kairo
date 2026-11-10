@@ -15,7 +15,10 @@ const LABELS = {
 };
 
 export function FactsPanel({ facts, assumptions }) {
-  const rows = Object.entries(facts ?? {});
+  // in LABELS order: Postgres' JSON column doesn't keep key order
+  const order = Object.keys(LABELS);
+  const rank = (k) => (order.includes(k) ? order.indexOf(k) : order.length);
+  const rows = Object.entries(facts ?? {}).sort(([a], [b]) => rank(a) - rank(b));
   if (!rows.length) return null;
 
   return (

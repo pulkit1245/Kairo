@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createAppAuth } from '@octokit/auth-app';
 import { Octokit } from '@octokit/rest';
 import { env } from '../config/env.config.js';
+import { createLogger } from '../utils/logger.js';
 
 // The one place that talks to GitHub, as the Kairo GitHub App (FR-1 to FR-6).
 // Like kubernetes/, both generator/ and remediation/ may import it.
@@ -21,6 +22,18 @@ export const NO_TOKEN_CACHE = Object.freeze({
 });
 
 const USER_AGENT = 'kairo';
+
+// Octokit logs every failed request itself, even the 404s Kairo expects (e.g.
+// "no kairo/setup branch yet"). Kairo handles and logs real errors where they
+// happen, so Octokit's own lines go to debug.
+const ghLog = createLogger('github');
+const OCTOKIT_LOG = {
+  debug: () => {},
+  info: () => {},
+  warn: (m) => ghLog.debug(m),
+  error: (m) => ghLog.debug(m),
+};
+const options = (extra) => ({ userAgent: USER_AGENT, log: OCTOKIT_LOG, ...extra });
 
 // read once, when first needed. The key stays in memory, never in the database
 // or a log (PQ8: Punit keeps the file at GITHUB_APP_PRIVATE_KEY_PATH)
@@ -48,16 +61,14 @@ function appAuthOptions() {
 
 // app-level calls (JWT), and the OAuth token routes (client id + secret)
 function appClient() {
-  return new Octokit({ authStrategy: createAppAuth, auth: appAuthOptions(), userAgent: USER_AGENT });
+  return new Octokit(options({ authStrategy: createAppAuth, auth: appAuthOptions() }));
 }
 
 // calls on one installation's repos. Each request mints its own token (see NO_TOKEN_CACHE)
 export function installationClient(githubInstallationId) {
-  return new Octokit({
-    authStrategy: createAppAuth,
-    auth: { ...appAuthOptions(), installationId: githubInstallationId },
-    userAgent: USER_AGENT,
-  });
+  return new Octokit(
+    options({ authStrategy: createAppAuth, auth: { ...appAuthOptions(), installationId: githubInstallationId } }),
+  );
 }
 
 // GitHub's "Sign in with GitHub" page for the App's user authorization (FR-1)
@@ -82,7 +93,7 @@ export function installUrl(state) {
 export async function exchangeCode(code) {
   const { token } = await createAppAuth(appAuthOptions())({ type: 'oauth-user', code });
   try {
-    const user = new Octokit({ auth: token, userAgent: USER_AGENT });
+    const user = new Octokit(options({ auth: token }));
     const { data: me } = await user.rest.users.getAuthenticated();
     const installations = await user.paginate(user.rest.apps.listInstallationsForAuthenticatedUser, {
       per_page: 100,

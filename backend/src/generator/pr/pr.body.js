@@ -42,7 +42,12 @@ export function prBody(p) {
   const kept = p.files.filter((f) => f.origin === 'KEPT_EXISTING');
   const added = p.files.filter((f) => f.origin !== 'KEPT_EXISTING');
 
-  const facts = Object.entries(p.facts ?? {}).map(
+  // in FACT_LABELS order: Postgres' JSON column doesn't keep key order
+  const order = Object.keys(FACT_LABELS);
+  const rank = (k) => (order.includes(k) ? order.indexOf(k) : order.length);
+  const facts = Object.entries(p.facts ?? {})
+    .sort(([a], [b]) => rank(a) - rank(b))
+    .map(
     ([key, f]) => `| ${FACT_LABELS[key] ?? key} | ${code(f.value)} | ${f.source}: ${cell(f.from)} |`,
   );
 

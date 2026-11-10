@@ -54,6 +54,18 @@ describe('setup PR body (FR-32)', () => {
     assert.match(body(), /preview of `2c7e8d5` and it stayed healthy through its 60 s grace window/);
   });
 
+  it('lists facts in a fixed order, whatever order the database returns', () => {
+    const b = body({
+      facts: {
+        port: { value: 3000, source: 'default', from: 'x' },
+        stack: { value: 'Node.js', source: 'rule', from: 'package.json' },
+        packageManager: { value: 'npm', source: 'rule', from: 'package-lock.json' },
+      },
+    });
+    assert.ok(b.indexOf('| Stack |') < b.indexOf('| Package manager |'));
+    assert.ok(b.indexOf('| Package manager |') < b.indexOf('| Port |'));
+  });
+
   it('uses the fixed branch name', () => {
     assert.equal(SETUP_BRANCH, 'kairo/setup');
   });
