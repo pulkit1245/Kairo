@@ -3,6 +3,7 @@ import { prisma } from '../db/index.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
 import { AppError, errorMessage } from '../utils/AppError.js';
 import { createLogger } from '../utils/logger.js';
+import { cloneUrlFor } from '../utils/repoUrl.js';
 import { cloneRepo } from './clone/clone.service.js';
 import { detectStack } from './detection/detection.service.js';
 import { generateConfigs } from './template/config.service.js';
@@ -11,56 +12,68 @@ const log = createLogger('pipeline');
 
 // Runs in the background after POST /deployments returns.
 // The frontend polls GET /deployments/:id and follows the status.
-export async function runPipeline(deploymentId) {
-  const deployment = await prisma.deployment.findUniqueOrThrow({ where: { id: deploymentId } });
+export async function runPipeline(runId) {
+  const run = await prisma.pipelineRun.findUniqueOrThrow({
+    where: { id: runId },
+    include: { app: true },
+  });
+  const { app } = run;
   const started = Date.now();
+  // which step we're on, so a failure can say where it happened
+  let step = 'CLONING';
 
   try {
-    await moveTo(deploymentId, 'CLONING');
-    const { dir, commitSha } = await cloneRepo(deployment.repoUrl, deploymentId, {
+    await moveTo(runId, step);
+    const { dir, commitSha, branch } = await cloneRepo(cloneUrlFor(app.repoFullName), runId, {
       workspaceDir: env.workspaceDir,
       timeoutMs: env.cloneTimeoutMs,
     });
-    log.info(`${deployment.appName}: cloned @ ${commitSha.slice(0, 7)}`);
+    log.info(`${app.slug}: cloned ${branch} @ ${commitSha.slice(0, 7)}`);
 
-    await moveTo(deploymentId, 'DETECTING', { commitSha });
+    step = 'DETECTING';
+    await moveTo(runId, step, { commitSha });
+    await prisma.app.update({ where: { id: app.id }, data: { defaultBranch: branch } });
     const detected = await detectStack(dir);
-    log.info(`${deployment.appName}: looks like ${detected.stack}`);
+    log.info(`${app.slug}: looks like ${detected.stack}`);
 
-    await moveTo(deploymentId, 'GENERATING', { stack: detected.stack });
-    const configs = generateConfigs({
-      deploymentId,
-      appName: deployment.appName,
+    step = 'GENERATING';
+    await moveTo(runId, step);
+    await prisma.app.update({ where: { id: app.id }, data: { stack: detected.stack } });
+    const files = generateConfigs({
+      pipelineRunId: runId,
+      appName: app.slug,
       commitSha,
-      namespace: env.kubeNamespace,
+      namespace: app.namespace,
       detected,
     });
-    await prisma.deployment.update({ where: { id: deploymentId }, data: { configs } });
+    await prisma.generatedFile.createMany({
+      data: files.map((f) => ({ ...f, pipelineRunId: runId })),
+    });
 
-    // TODO(phase 2): BUILDING  -> docker build with Docker Desktop's engine (kubeadm sees local images)
-    //                DEPLOYING -> apply the manifests with the k8s client
-    //                RUNNING   -> once the rollout is ready
-    // until then the deployment just stops at GENERATING with its configs filled in
-    log.info(`${deployment.appName}: configs ready in ${Date.now() - started}ms`);
+    // TODO(P1): BUILDING  -> docker build with Docker Desktop's engine (the cluster sees local images)
+    //           DEPLOYING -> apply the manifests with the k8s client
+    //           RUNNING   -> once the rollout is ready
+    // until then the run just stops at GENERATING with its files saved
+    log.info(`${app.slug}: files ready in ${Date.now() - started}ms`);
   } catch (err) {
     const reason = err instanceof AppError ? err.message : `Unexpected error: ${errorMessage(err)}`;
-    log.warn(`${deployment.appName}: failed - ${reason}`);
+    log.warn(`${app.slug}: failed at ${step} - ${reason}`);
     if (!(err instanceof AppError)) log.error('pipeline crashed', err);
 
-    await moveTo(deploymentId, 'FAILED', { failureReason: reason });
+    await moveTo(runId, 'FAILED', { failedStep: step, errorLog: reason });
   }
 }
 
 function moveTo(id, status, extra = {}) {
-  return prisma.deployment.update({ where: { id }, data: { ...extra, status } });
+  return prisma.pipelineRun.update({ where: { id }, data: { ...extra, status } });
 }
 
 // If the server dies halfway through a pipeline the row stays in CLONING etc.
 // forever and the stepper on the frontend spins forever. Clean those up on boot.
-export async function failInterruptedDeployments() {
-  const { count } = await prisma.deployment.updateMany({
+export async function failInterruptedRuns() {
+  const { count } = await prisma.pipelineRun.updateMany({
     where: { status: { in: [...IN_PROGRESS_STATUSES] } },
-    data: { status: 'FAILED', failureReason: 'Interrupted - the backend restarted mid-deploy' },
+    data: { status: 'FAILED', errorLog: 'Interrupted - the backend restarted mid-deploy' },
   });
   return count;
 }

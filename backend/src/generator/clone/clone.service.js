@@ -4,9 +4,9 @@ import { simpleGit, GitError } from 'simple-git';
 import { AppError } from '../../utils/AppError.js';
 
 // opts: { workspaceDir, timeoutMs }
-// clones into <workspaceDir>/<deploymentId> and returns { dir, commitSha }
-export async function cloneRepo(cloneUrl, deploymentId, opts) {
-  const dir = path.join(opts.workspaceDir, deploymentId);
+// clones into <workspaceDir>/<runId> and returns { dir, commitSha, branch }
+export async function cloneRepo(cloneUrl, runId, opts) {
+  const dir = path.join(opts.workspaceDir, runId);
 
   await mkdir(opts.workspaceDir, { recursive: true });
   await rm(dir, { recursive: true, force: true });
@@ -21,8 +21,11 @@ export async function cloneRepo(cloneUrl, deploymentId, opts) {
     throw new AppError(cloneFailureReason(err));
   }
 
-  const commitSha = (await simpleGit(dir).revparse(['HEAD'])).trim();
-  return { dir, commitSha };
+  const repo = simpleGit(dir);
+  const commitSha = (await repo.revparse(['HEAD'])).trim();
+  // a plain clone checks out the default branch, so this is its name
+  const branch = (await repo.revparse(['--abbrev-ref', 'HEAD'])).trim();
+  return { dir, commitSha, branch };
 }
 
 // Don't just spread process.env here. simple-git refuses to run at all if it

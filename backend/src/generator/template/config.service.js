@@ -14,14 +14,14 @@ const DOCKERFILE_TEMPLATE = {
   PYTHON: 'docker/python.Dockerfile.njk',
 };
 
-// input: { deploymentId, appName, commitSha, namespace, detected }
+// input: { pipelineRunId, appName, commitSha, namespace, detected }
 // where `detected` is whatever detectStack() returned.
-// returns a list of { kind, path, content } - see GeneratedConfig in src/types
+// returns a list of { kind, origin, path, content } - see GeneratedConfig in src/types
 export function generateConfigs(input) {
   const { detected } = input;
 
   const ctx = {
-    deploymentId: input.deploymentId,
+    pipelineRunId: input.pipelineRunId,
     appName: input.appName,
     namespace: input.namespace,
     // built with Docker Desktop's engine in phase 2; its kubeadm cluster uses local images, so no registry
@@ -33,22 +33,15 @@ export function generateConfigs(input) {
     ...RESOURCES,
   };
 
-  // TODO: ci workflow + prometheus rules templates (phase 2)
+  // TODO: ingress + alert rules (P1), workflow (P2)
   return [
-    {
-      kind: 'dockerfile',
-      path: 'Dockerfile',
-      content: render(DOCKERFILE_TEMPLATE[detected.stack], ctx),
-    },
-    {
-      kind: 'k8s',
-      path: 'k8s/deployment.yaml',
-      content: render('k8s/deployment.yaml.njk', ctx),
-    },
-    {
-      kind: 'k8s',
-      path: 'k8s/service.yaml',
-      content: render('k8s/service.yaml.njk', ctx),
-    },
+    file('DOCKERFILE', 'Dockerfile', render(DOCKERFILE_TEMPLATE[detected.stack], ctx)),
+    file('DEPLOYMENT', 'k8s/deployment.yaml', render('k8s/deployment.yaml.njk', ctx)),
+    file('SERVICE', 'k8s/service.yaml', render('k8s/service.yaml.njk', ctx)),
   ];
+}
+
+// everything is GENERATED until P2 learns to keep an existing Dockerfile (FR-25)
+function file(kind, path, content) {
+  return { kind, origin: 'GENERATED', path, content };
 }

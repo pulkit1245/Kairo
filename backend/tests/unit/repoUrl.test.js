@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parseGithubUrl, toAppName } from '../../src/utils/repoUrl.js';
+import { cloneUrlFor, parseGithubUrl, pickSlug, toAppName } from '../../src/utils/repoUrl.js';
 
 describe('parseGithubUrl', () => {
   it('accepts the usual forms', () => {
@@ -39,5 +39,28 @@ describe('toAppName', () => {
   it('stays under the length limit', () => {
     const name = toAppName('a'.repeat(100));
     assert.ok(name.length <= 50);
+  });
+});
+
+describe('cloneUrlFor', () => {
+  it('builds the https clone url from owner/repo', () => {
+    assert.equal(cloneUrlFor('PunitXd/kairo'), 'https://github.com/PunitXd/kairo.git');
+  });
+});
+
+describe('pickSlug', () => {
+  const takenFrom = (list) => async (slug) => list.includes(slug);
+
+  it('uses the repo name when it is free', async () => {
+    assert.equal(await pickSlug('alice', 'todo-api', takenFrom([])), 'todo-api');
+  });
+
+  it('adds the owner when the repo name is taken', async () => {
+    assert.equal(await pickSlug('bob', 'todo-api', takenFrom(['todo-api'])), 'bob-todo-api');
+  });
+
+  it('adds a number when both are taken', async () => {
+    const taken = takenFrom(['todo-api', 'bob-todo-api', 'bob-todo-api-2']);
+    assert.equal(await pickSlug('bob', 'todo-api', taken), 'bob-todo-api-3');
   });
 });

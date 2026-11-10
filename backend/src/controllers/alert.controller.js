@@ -17,10 +17,12 @@ export async function receive(req, res) {
 
   // one alert failing shouldn't stop the rest from being handled.
   // sequential on purpose: two alerts for the same pod shouldn't race each other
+  // alerts for apps Kairo doesn't know count as skipped too
   let failed = 0;
+  let unknownApp = 0;
   for (const alert of alerts) {
     try {
-      await handleAlert(alert);
+      if ((await handleAlert(alert)) === 'unknown-app') unknownApp++;
     } catch (err) {
       failed++;
       log.error(`failed handling ${alert.alertName} for ${alert.appName}: ${errorMessage(err)}`);
@@ -29,5 +31,5 @@ export async function receive(req, res) {
 
   // always 200 unless the whole thing was garbage - a non-2xx makes
   // alertmanager retry, and we'd just fail the same way again
-  res.json({ received: alerts.length, skipped, failed });
+  res.json({ received: alerts.length - unknownApp, skipped: skipped + unknownApp, failed });
 }

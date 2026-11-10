@@ -29,3 +29,24 @@ export function toAppName(repo) {
 
   return name.slice(0, 50).replace(/-$/, '');
 }
+
+// apps store "owner/repo"; this is what git clones
+export function cloneUrlFor(repoFullName) {
+  return `https://github.com/${repoFullName}.git`;
+}
+
+// slug = k8s name, app label and <slug>.kairo.local, so it must be unique.
+// Try the repo name, then owner-repo, then add -2, -3 ...
+// isTaken is async (slug) => boolean, passed in so this stays testable
+export async function pickSlug(owner, repo, isTaken) {
+  const first = toAppName(repo);
+  if (!(await isTaken(first))) return first;
+
+  const withOwner = toAppName(`${owner}-${repo}`);
+  if (!(await isTaken(withOwner))) return withOwner;
+
+  for (let n = 2; ; n++) {
+    const candidate = `${withOwner.slice(0, 46)}-${n}`;
+    if (!(await isTaken(candidate))) return candidate;
+  }
+}

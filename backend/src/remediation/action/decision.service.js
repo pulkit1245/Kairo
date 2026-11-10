@@ -9,8 +9,10 @@ const RULES = {
   // restarting a crashlooping pod won't fix a bad build, go back to the last good one
   KairoCrashLoop: { action: 'ROLLBACK', cause: 'Container keeps crashing on startup' },
 
-  KairoHighCpu: { action: 'SCALE', cause: 'CPU usage is high' },
-  KairoHighLatency: { action: 'SCALE', cause: 'Response times are high' },
+  // SCALE_DOWN never comes from an alert: the scale-down check (P3) triggers it
+
+  KairoHighCpu: { action: 'SCALE_UP', cause: 'CPU usage is high' },
+  KairoHighLatency: { action: 'SCALE_UP', cause: 'Response times are high' },
 };
 
 export function decideAction(alertName, summary) {

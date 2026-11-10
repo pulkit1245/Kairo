@@ -5,45 +5,50 @@ import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('remediation');
 
+// Runs one action and says how it went, in the words a RemediationAttempt uses:
+// { result: 'APPLIED' | 'FAILED' | 'SKIPPED', dryRun, note }
+// VERIFIED / UNVERIFIED come later, from the check after the action (P3)
 export async function executeAction(action, alert) {
-  if (action === 'NONE') {
-    return { executed: false, note: 'no action for this alert' };
-  }
+  const dryRun = env.remediationDryRun;
+  const skipped = (note) => ({ result: 'SKIPPED', dryRun, note });
 
-  if (env.remediationDryRun) {
+  if (action === 'NONE') return skipped('no action for this alert');
+
+  if (dryRun) {
     log.info(`[dry run] would ${action} ${alert.appName} (pod ${alert.pod ?? '?'})`);
-    return { executed: false, note: 'dry run' };
+    return skipped('dry run');
   }
 
   switch (action) {
     case 'RESTART':
-      return restartPod(alert);
+      return restartPod(alert, dryRun);
     case 'ROLLBACK':
-    case 'SCALE':
-      // TODO(phase 2): rollback = patch deployment back to previous ReplicaSet's template,
-      // scale = bump replicas (with a cap so a bad alert can't eat the cluster)
+    case 'SCALE_UP':
+    case 'SCALE_DOWN':
+      // TODO(P3): rollback = patch the deployment to the last healthy release's image,
+      // scale = change replicas within the cap of 3
       log.warn(`${action} not implemented yet, skipping for ${alert.appName}`);
-      return { executed: false, note: `${action} not implemented yet` };
+      return skipped(`${action} not implemented yet`);
     default:
       log.warn(`unknown action "${action}" for ${alert.appName}`);
-      return { executed: false, note: 'unknown action' };
+      return skipped('unknown action');
   }
 }
 
-async function restartPod(alert) {
+async function restartPod(alert, dryRun) {
   if (!alert.pod) {
-    return { executed: false, note: 'alert has no pod label, nothing to restart' };
+    return { result: 'SKIPPED', dryRun, note: 'alert has no pod label, nothing to restart' };
   }
 
   const namespace = alert.namespace ?? env.kubeNamespace;
   try {
     await deletePod(namespace, alert.pod);
     log.info(`restarted ${namespace}/${alert.pod}`);
-    return { executed: true, note: `deleted pod ${alert.pod}` };
+    return { result: 'APPLIED', dryRun, note: `deleted pod ${alert.pod}` };
   } catch (err) {
     // pod is often already gone by the time the alert arrives (k8s restarted it
-    // itself). that's fine, not an error worth failing the webhook over
+    // itself). logged as a warning, recorded as FAILED so the record is honest
     log.warn(`could not delete ${namespace}/${alert.pod}: ${errorMessage(err)}`);
-    return { executed: false, note: 'pod delete failed' };
+    return { result: 'FAILED', dryRun, note: 'pod delete failed' };
   }
 }

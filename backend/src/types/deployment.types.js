@@ -1,6 +1,8 @@
 // Shared contract between generator/, remediation/ and the frontend.
-// The frontend keeps its own copy of these, so if you change something here tell FE 1/FE 2.
+// Every list here is also a Prisma enum and is copied to frontend/src/types/enums.js.
+// Change all three in one commit; tests/unit/enums.test.js fails if they drift.
 
+// pipeline steps in order. FAILED can happen at any step (FR-7)
 export const DEPLOYMENT_STATUSES = Object.freeze([
   'CLONING',
   'DETECTING',
@@ -11,7 +13,7 @@ export const DEPLOYMENT_STATUSES = Object.freeze([
   'FAILED',
 ]);
 
-// everything that isn't a final state. used to clean up after a crash
+// not a final state. the frontend shows a spinner for these
 export const IN_PROGRESS_STATUSES = Object.freeze([
   'CLONING',
   'DETECTING',
@@ -23,24 +25,29 @@ export const IN_PROGRESS_STATUSES = Object.freeze([
 export const STACKS = Object.freeze(['NODE', 'PYTHON']);
 
 /**
- * One generated file. `path` is where it would sit inside the user's repo.
+ * One generated file, as the API returns it.
  * @typedef {object} GeneratedConfig
- * @property {'dockerfile' | 'k8s' | 'ci' | 'prometheus'} kind
- * @property {string} path
+ * @property {string} kind      one of FILE_KINDS
+ * @property {string} origin    one of FILE_ORIGINS
+ * @property {string} path      where it sits inside the user's repo
  * @property {string} content
  */
 
 /**
- * What GET /api/deployments/:id returns.
+ * What /api/deployments returns. A "deployment" is one PipelineRun plus a few
+ * fields from its App, so the URLs from phase 1 keep working.
  * @typedef {object} Deployment
- * @property {string} id
- * @property {string} repoUrl
- * @property {string} appName
- * @property {string} status          one of DEPLOYMENT_STATUSES
- * @property {string | null} stack    one of STACKS
+ * @property {string} id                  the PipelineRun id
+ * @property {string} appId
+ * @property {string} repoUrl             https://github.com/owner/repo.git
+ * @property {string} appName             the App's slug
+ * @property {string} status              one of DEPLOYMENT_STATUSES
+ * @property {string | null} failedStep   the step it was on when it failed
+ * @property {string | null} stack        one of STACKS
  * @property {string | null} commitSha
  * @property {string | null} failureReason
- * @property {GeneratedConfig[]} configs
- * @property {string} createdAt       ISO date
- * @property {string} updatedAt       ISO date
+ * @property {string | null} explanation  Gemini, P4
+ * @property {string} startedAt           ISO date
+ * @property {string | null} finishedAt   ISO date, null while running
+ * @property {GeneratedConfig[]} [configs] only on GET /api/deployments/:id
  */
