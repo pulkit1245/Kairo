@@ -65,6 +65,31 @@ const CHECKS = {
     check(rule?.http?.paths?.[0]?.backend?.service?.name === ctx.appName, 'backend should be the app Service');
   },
 
+  // FR-24: what the GHCR watcher and the cluster depend on
+  WORKFLOW(file, ctx, check, doc) {
+    const wf = ctx.workflow;
+    const branches = doc.on?.push?.branches ?? [];
+    check(branches.includes(wf.defaultBranch), `should run on push to ${wf.defaultBranch}`);
+    check(doc.permissions?.packages === 'write', 'needs packages: write to push to GHCR');
+    const steps = doc.jobs?.image?.steps ?? [];
+    const build = steps.find((s) => String(s.uses ?? '').startsWith('docker/build-push-action@'));
+    check(build, 'no docker/build-push-action step');
+    if (build) {
+      const platforms = String(build.with?.platforms ?? '').split(',').map((p) => p.trim());
+      check(platforms.includes('linux/amd64') && platforms.includes('linux/arm64'), 'must build linux/amd64 and linux/arm64');
+      check(build.with?.push === true, 'must push the image');
+      check(String(build.with?.tags ?? '').endsWith(':${{ github.sha }}'), 'tag must be the full commit sha');
+    }
+    check(doc.env?.IMAGE === wf.image, `image should be ${wf.image}`);
+    // a pinned SHA can't be moved under us; a tag can
+    for (const s of Object.values(doc.jobs ?? {}).flatMap((j) => j.steps ?? [])) {
+      if (s.uses) check(/@[0-9a-f]{40}$/.test(s.uses), `${s.uses} should be pinned to a commit SHA`);
+    }
+    const trivy = steps.find((s) => /trivy/i.test(String(s.run ?? '')));
+    check(trivy && /--exit-code 0/.test(trivy.run), 'Trivy must be report-only (--exit-code 0)');
+    check(Boolean(doc.jobs?.test) === Boolean(wf.test), wf.test ? 'test job missing' : 'test job without a real test script');
+  },
+
   ALERT_RULES(file, ctx, check, doc) {
     const rules = doc.groups?.flatMap((g) => g.rules ?? []) ?? [];
     const names = rules.map((r) => r.alert).sort();
@@ -81,7 +106,8 @@ export function validateConfigs(files, ctx) {
   for (const file of files) {
     const check = checker(file, problems);
     if (file.kind === 'DOCKERFILE') {
-      CHECKS.DOCKERFILE(file, ctx, check);
+      // a kept Dockerfile is the owner's file: Kairo builds it as it is (FR-25)
+      if (file.origin !== 'KEPT_EXISTING') CHECKS.DOCKERFILE(file, ctx, check);
       continue;
     }
     const { doc, error } = parse(file);

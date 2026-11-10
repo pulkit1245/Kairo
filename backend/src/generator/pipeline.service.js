@@ -71,7 +71,7 @@ export async function runPipeline(runId) {
     await moveTo(runId, step, { commitSha });
     await prisma.app.update({ where: { id: app.id }, data: { defaultBranch: branch } });
     const detected = await detectStack(dir);
-    log.info(`${app.slug}: looks like ${detected.stack}`);
+    log.info(`${app.slug}: looks like ${detected.stack ?? 'an unknown stack'}${detected.existingDockerfile ? ', keeping its Dockerfile' : ''}`);
 
     step = 'GENERATING';
     await moveTo(runId, step);
@@ -83,6 +83,8 @@ export async function runPipeline(runId) {
       appName: app.slug,
       commitSha,
       namespace,
+      repoFullName: app.repoFullName,
+      defaultBranch: branch,
       detected,
     });
     await prisma.generatedFile.createMany({
@@ -93,10 +95,12 @@ export async function runPipeline(runId) {
     step = 'BUILDING';
     await moveTo(runId, step);
     const imageRef = appImage(app.slug, commitSha);
-    // the generated Dockerfile sits next to the clone, not in it, so the build
-    // context is exactly the repo. .git isn't needed any more
-    const dockerfile = `${dir}.Dockerfile`;
-    await writeFile(dockerfile, byKind.DOCKERFILE.content);
+    // a kept Dockerfile is built where it is (FR-25). A generated one sits next
+    // to the clone, not in it, so the build context is exactly the repo.
+    // .git isn't needed any more
+    const kept = byKind.DOCKERFILE.origin === 'KEPT_EXISTING';
+    const dockerfile = kept ? path.join(dir, 'Dockerfile') : `${dir}.Dockerfile`;
+    if (!kept) await writeFile(dockerfile, byKind.DOCKERFILE.content);
     await rm(path.join(dir, '.git'), { recursive: true, force: true });
     const build = await buildImage({ contextDir: dir, dockerfile, tag: imageRef });
     if (!build.ok) throw new StepError(build.reason, build.logTail);
