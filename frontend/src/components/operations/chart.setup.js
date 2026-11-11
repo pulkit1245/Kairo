@@ -2,8 +2,6 @@
 // small (Chart.js is tree-shakeable). Colors come from the theme tokens in
 // styles/index.css so charts match the rest of the UI.
 import {
-  BarController,
-  BarElement,
   CategoryScale,
   Chart,
   Filler,
@@ -53,8 +51,6 @@ const markers = {
 
 Chart.register(
   markers,
-  BarController,
-  BarElement,
   LineController,
   LineElement,
   PointElement,

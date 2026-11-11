@@ -4,12 +4,9 @@ import { useAuth } from '../auth/auth.jsx';
 import { HealthPills } from '../operations/HealthPills.jsx';
 import { Icon } from './Icon.jsx';
 
-// Sidebar + top bar from the Stitch screens. The sidebar only has Apps for now;
-// Incidents is a temporary P0 page that moves into each app's dashboard in P3.
-const NAV = [
-  { to: '/', label: 'Apps', icon: 'apps', end: true },
-  { to: '/incidents', label: 'Incidents', icon: 'emergency_home' },
-];
+// Sidebar + top bar from the Stitch screens. The sidebar has only Apps: each
+// app's page shows its own incidents (P3).
+const NAV = [{ to: '/', label: 'Apps', icon: 'apps', end: true }];
 
 export function Layout() {
   return (

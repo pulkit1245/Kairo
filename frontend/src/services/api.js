@@ -84,6 +84,5 @@ export const listDeployments = () => request('/deployments');
 export const createDeployment = (repoUrl) => postJson('/deployments', { repoUrl });
 export const getDeployment = (id) => request(`/deployments/${encodeURIComponent(id)}`);
 
-export const listIncidents = () => request('/incidents');
 // one incident with its pods' memory around it (the drawer, Stitch 08)
 export const getIncident = (id) => request(`/incidents/${encodeURIComponent(id)}`);
