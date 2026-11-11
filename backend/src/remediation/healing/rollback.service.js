@@ -30,8 +30,11 @@ const log = createLogger('remediation');
  * @param {{ slug: string, releases: object[] }} app with all its releases
  */
 export function rollbackBlocked(app, release, { now = Date.now() } = {}) {
-  if (!app.releases.some((r) => r.status === 'ACTIVE')) return 'the app has nothing running';
+  const active = app.releases.find((r) => r.status === 'ACTIVE');
+  if (!active) return 'the app has nothing running';
   if (release.status === 'ACTIVE') return 'this release is the one running now';
+  // e.g. the same commit deployed twice: rolling back would change nothing
+  if (release.imageRef === active.imageRef) return 'it runs the same image as the active release';
   if (release.source === 'TEST' || !release.healthyAt) return 'only releases that were marked healthy can be rolled back to (FR-61)';
   if (!storedImages(app.releases).has(release.imageRef)) return 'its image was pruned (Kairo keeps the last 3)';
   if (env.remediationDryRun) return 'REMEDIATION_DRY_RUN is on, so Kairo changes nothing in the cluster';

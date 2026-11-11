@@ -9,7 +9,7 @@ export function AttentionBanner({ app }) {
   if (app.health !== 'NEEDS_ATTENTION') return null;
   // the newest incident that opened or commented on the app's issue
   const issue = app.incidents?.find((i) => i.githubIssueUrl);
-  const canRollBack = app.releases.some(offersRollback);
+  const canRollBack = app.releases.some((r) => offersRollback(r, app.release));
   return (
     <section role="alert" className="flex flex-wrap items-start gap-3 rounded border border-error/40 bg-error-container/20 px-4 py-4">
       <Icon name="error" className="text-[24px] text-error" />

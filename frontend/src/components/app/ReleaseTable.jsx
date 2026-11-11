@@ -31,10 +31,13 @@ export function releaseHealth(r, now = Date.now()) {
   return { label: 'Not marked healthy', icon: 'block', tone: 'warn' };
 }
 
-// offered at all: an earlier healthy release with its image (Break It's never is)
-export const offersRollback = (r) => r.status !== 'ACTIVE' && Boolean(r.healthyAt) && r.imageStored && r.source !== 'TEST';
+// offered at all: an earlier healthy release with its image (Break It's never
+// is), and not one that runs the same image as the active release
+export const offersRollback = (r, active) =>
+  r.status !== 'ACTIVE' && Boolean(r.healthyAt) && r.imageStored && r.source !== 'TEST' && r.imageRef !== active?.imageRef;
 
 export function ReleaseTable({ slug, releases, now, onRolledBack }) {
+  const running = releases.find((r) => r.status === 'ACTIVE');
   const [confirming, setConfirming] = useState(null);
   const [busy, setBusy] = useState(null);
   const [message, setMessage] = useState(null);
@@ -112,7 +115,7 @@ export function ReleaseTable({ slug, releases, now, onRolledBack }) {
                     </span>
                   </td>
                   <td className={`${td} text-right`}>
-                    {offersRollback(r) && (
+                    {offersRollback(r, running) && (
                       <RollbackButton
                         release={r}
                         confirming={confirming === r.id}

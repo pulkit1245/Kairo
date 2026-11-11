@@ -207,6 +207,7 @@ describe('manual rollback (FR-60, FR-61)', () => {
 
   it('refuses the running release, unhealthy ones, Break It and pruned images', () => {
     assert.match(rollbackBlocked(app, active), /running now/);
+    assert.match(rollbackBlocked(app, { ...older, imageRef: active.imageRef }), /same image/);
     assert.match(rollbackBlocked(app, { ...older, healthyAt: null }), /marked healthy/);
     assert.match(rollbackBlocked(app, { ...older, source: 'TEST' }), /marked healthy/);
     const many = { slug: 'demo', releases: [active, older, rel('r1', { deployedAt: new Date(at.getTime() - 3000) }), rel('r0', { deployedAt: new Date(at.getTime() - 4000) })] };
