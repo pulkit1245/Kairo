@@ -117,14 +117,12 @@ export async function deleteNamespace(name) {
   }
 }
 
-export async function namespaceExists(name) {
-  try {
-    await call((c) => c.makeApiClient(k8s.CoreV1Api).readNamespace({ name }));
-    return true;
-  } catch (err) {
-    if (isNotFound(err)) return false;
-    throw err;
-  }
+// How many pods are left in a namespace; 0 once it is gone. FR-68 lets
+// kairo-platform list pods but not read namespaces, so this is how Kairo
+// knows a deleted app's containers have stopped
+export async function podCount(namespace) {
+  const pods = await call((c) => c.makeApiClient(k8s.CoreV1Api).listNamespacedPod({ namespace }));
+  return pods.items.length;
 }
 
 // Server-side apply: creates each object or updates it to match, and records

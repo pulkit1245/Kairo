@@ -1,5 +1,5 @@
 import { prisma } from '../db/index.js';
-import { deleteAlertRules, deleteNamespace, k8sErrorMessage, namespaceExists } from '../kubernetes/k8s.client.js';
+import { deleteAlertRules, deleteNamespace, k8sErrorMessage, podCount } from '../kubernetes/k8s.client.js';
 import * as healing from '../remediation/healing/healing.state.js';
 import { forgetAppIncidents } from '../remediation/incident/incident.service.js';
 import { stopGrace } from '../shipping/grace.service.js';
@@ -19,8 +19,9 @@ import { createLogger } from '../utils/logger.js';
 //      healing and incident memory forget the app
 //   4. record: open incidents closed, deletedAt set. Releases, incidents and
 //      attempts stay, so the history is kept
-//   5. after the answer: once the namespace is gone, remove the app's
-//      images from the laptop (an image still used by a container can't be)
+//   5. after the answer: once the namespace has no pods left, remove the
+//      app's images from the laptop (an image a container still uses can't be).
+//      FR-68 lets kairo-platform list pods but not read namespaces
 //
 // GitHub is never touched: repo, PR, workflow, GHCR images and issues stay
 // (FR-66). The GHCR watcher and the scale-down check only look at apps
@@ -95,14 +96,14 @@ export function cleanUpLater(app, images) {
 
 async function removeImagesWhenGone(app, images, waitMs = NAMESPACE_GONE_WITHIN_MS) {
   const until = Date.now() + waitMs;
-  while (await namespaceExists(app.namespace)) {
+  while ((await podCount(app.namespace)) > 0) {
     if (Date.now() > until) {
-      log.warn(`${app.slug}: namespace ${app.namespace} still there after ${waitMs / 1000} s; its images stay for now`);
+      log.warn(`${app.slug}: pods still running in ${app.namespace} after ${waitMs / 1000} s; its images stay for now`);
       return { removed: [] };
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  log.info(`${app.slug}: namespace ${app.namespace} is gone`);
+  log.info(`${app.slug}: no pods left in ${app.namespace}; removing its images`);
   const removed = [];
   for (const ref of images) {
     const { code, output } = await docker(['image', 'rm', ref]);
