@@ -1,17 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { AppIncidents } from '../components/app/AppIncidents.jsx';
+import { AttentionBanner } from '../components/app/AttentionBanner.jsx';
+import { AutoHealToggle } from '../components/app/AutoHealToggle.jsx';
+import { IncidentDrawer } from '../components/app/IncidentDrawer.jsx';
+import { KpiRow } from '../components/app/KpiRow.jsx';
+import { LogsPanel } from '../components/app/LogsPanel.jsx';
+import { MetricCharts } from '../components/app/MetricCharts.jsx';
 import { ReleaseTable } from '../components/app/ReleaseTable.jsx';
+import { TestPanel } from '../components/app/TestPanel.jsx';
 import { relativeTime, shortSha } from '../components/common/format.js';
 import { Icon } from '../components/common/Icon.jsx';
 import { Panel, PanelMessage } from '../components/common/Panel.jsx';
 import { runStatus, stackLabel, TONE_CLASS } from '../components/common/status.js';
 import { StatusBadge } from '../components/common/StatusBadge.jsx';
 import { usePoll } from '../hooks/usePoll.js';
-import { getApp } from '../services/api.js';
+import { getApp, getAppMetrics } from '../services/api.js';
 
-// The app page (Stitch 07). P2c builds the header and the release list; P3
-// fills the empty slots with live KPIs, charts, incidents, logs and the test
-// panel. Polled, because rollouts happen in the background (GHCR watcher).
+// The app page (Stitch 07, 10): header, needs-attention banner, live KPIs and
+// charts, incidents and logs, releases and the test panel. Everything polls
+// every 5 s (FR-56, FR-58): healing and rollouts happen in the background.
 const POLL_MS = 5000;
 
 const HEALTH = {
@@ -25,7 +33,11 @@ const PR_LABEL = { OPEN: 'Open', MERGED: 'Merged', CLOSED: 'Closed', FAILED: "Co
 export function AppPage() {
   const { slug } = useParams();
   const { data: app, error, loading } = usePoll(() => getApp(slug), POLL_MS, [slug]);
-  const now = useNow(app?.release && !app.release.healthyAt);
+  const metrics = usePoll(() => getAppMetrics(slug), POLL_MS, [slug]);
+  const [openIncident, setOpenIncident] = useState(null);
+  const closeIncident = useCallback(() => setOpenIncident(null), []);
+  // ticks every second during a grace window or Send Traffic, for their countdowns
+  const now = useNow((app?.release && !app.release.healthyAt) || app?.traffic?.running);
 
   if (loading) return <PanelMessage>Loading…</PanelMessage>;
   if (!app) return <PanelMessage tone="bad">{error?.message ?? 'Not found'}</PanelMessage>;
@@ -36,7 +48,13 @@ export function AppPage() {
         <Icon name="arrow_back" className="text-[16px]" /> Apps
       </Link>
       <AppHeader app={app} now={now} />
-      <P3Slots />
+      <AttentionBanner app={app} />
+      <KpiRow metrics={metrics.data} app={app} />
+      <MetricCharts metrics={metrics.data} incidents={app.incidents} error={metrics.error} />
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <AppIncidents incidents={app.incidents} onOpen={setOpenIncident} />
+        <LogsPanel slug={app.slug} />
+      </div>
       <Panel title="Releases" meta={`${app.releases.length} shown · last 3 images kept`}>
         {app.releases.length ? (
           <ReleaseTable releases={app.releases} now={now} />
@@ -44,6 +62,8 @@ export function AppPage() {
           <PanelMessage>No releases yet. The first one is the preview.</PanelMessage>
         )}
       </Panel>
+      <TestPanel app={app} now={now} />
+      {openIncident && <IncidentDrawer id={openIncident} onClose={closeIncident} />}
     </div>
   );
 }
@@ -104,9 +124,7 @@ function AppHeader({ app, now }) {
             <StatusBadge status={runStatus(app.pipeline)} className="text-code-sm" />
           </Link>
         )}
-        <span className="text-outline">
-          Auto-heal: <span className={app.autoHeal ? 'font-bold text-tertiary' : 'font-bold text-on-surface-variant'}>{app.autoHeal ? 'ON' : 'OFF'}</span>
-        </span>
+        <AutoHealToggle app={app} />
       </div>
 
       <p className="flex items-center gap-1.5 text-body-sm text-on-surface-variant">
@@ -121,19 +139,7 @@ function AppHeader({ app, now }) {
   );
 }
 
-// where P3's live parts go (Stitch 07): KPIs and charts, incidents and logs, test panel
-function P3Slots() {
-  const slot = 'grid place-items-center rounded border border-dashed border-outline-variant px-4 py-6 text-center font-mono text-code-sm text-on-surface-variant';
-  return (
-    <div className="grid gap-3 md:grid-cols-3" aria-label="Coming in P3">
-      <div className={slot}>Live KPIs and charts · P3</div>
-      <div className={slot}>Incidents and app logs · P3</div>
-      <div className={slot}>Test panel · P3</div>
-    </div>
-  );
-}
-
-// ticks every second while a grace window counts down
+// ticks every second while `ticking`, for countdowns
 function useNow(ticking) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {

@@ -248,10 +248,15 @@ export async function withRetry(what, write, delayMs = RETRY_DELAY_MS) {
 
 export const WRITE_FAILED = FAILED;
 
-// what an incident DTO needs: the app, and each attempt's releases (sha)
+// what an incident DTO needs: the app, and each attempt's releases
 const WITH_ATTEMPTS = {
   app: true,
-  attempts: { include: { fromRelease: { select: { commitSha: true } }, toRelease: { select: { commitSha: true } } } },
+  attempts: {
+    include: {
+      fromRelease: { select: { commitSha: true, source: true } },
+      toRelease: { select: { commitSha: true, source: true } },
+    },
+  },
 };
 
 export async function listIncidents(limit = 50, where = {}) {

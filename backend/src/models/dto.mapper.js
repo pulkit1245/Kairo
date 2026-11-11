@@ -149,9 +149,12 @@ export function toIncidentDto(row) {
         result: a.result,
         fromReleaseId: a.fromReleaseId,
         toReleaseId: a.toReleaseId,
-        // the releases' commits, for "rolled back from … to …" (P3)
+        // the releases' commits and sources, for "rolled back from … to …" (P3).
+        // Break It's TEST release reuses the commit it replaced
         fromSha: a.fromRelease?.commitSha ?? null,
+        fromSource: a.fromRelease?.source ?? null,
         toSha: a.toRelease?.commitSha ?? null,
+        toSource: a.toRelease?.source ?? null,
         attemptedAt: a.attemptedAt.toISOString(),
         verifiedAt: iso(a.verifiedAt),
       })),

@@ -2,8 +2,8 @@ import { relativeTime, shortSha } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { TONE_CLASS } from '../common/status.js';
 
-// Releases of one app, newest first (Stitch 07 "Releases"). Read-only in P2:
-// "Roll back to this" arrives with P3's rollback.
+// Releases of one app, newest first (Stitch 07 "Releases"). Read-only:
+// "Roll back to this" arrives with P4's manual rollback (FR-61).
 
 const th = 'px-4 py-2 text-left font-mono text-code-sm uppercase tracking-wider text-on-surface-variant font-normal';
 const td = 'px-4 py-3 align-top';

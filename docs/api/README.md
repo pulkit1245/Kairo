@@ -344,7 +344,9 @@ The latest 50 Incidents, newest first.
       "fromReleaseId": null,
       "toReleaseId": null,
       "fromSha": null,
+      "fromSource": null,
       "toSha": null,
+      "toSource": null,
       "attemptedAt": "2026-11-10T10:48:33.120Z",
       "verifiedAt": null
     }
@@ -362,7 +364,7 @@ The latest 50 Incidents, newest first.
 | `attempts[].trigger` | `AUTO`, `MANUAL` |
 | `attempts[].result` | `APPLIED` (ran, being checked), `VERIFIED` (took effect within 90 s), `UNVERIFIED` (didn't), `FAILED`, `SKIPPED` (dry run, no action for the alert, auto-heal off, given up, mid-rollout) |
 | `attempts[].fromReleaseId`, `toReleaseId` | For a rollback: the release rolled away from and the one rolled back to |
-| `attempts[].fromSha`, `toSha` | Those releases' commits (since P3) |
+| `attempts[].fromSha`, `toSha`, `fromSource`, `toSource` | Those releases' commits and sources (since P3). Break It's `TEST` release has the commit of the release it replaced |
 
 ## GET /api/incidents/:id
 

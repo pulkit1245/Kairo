@@ -60,14 +60,16 @@ describe('incident attempts', () => {
       result: 'VERIFIED',
       fromReleaseId: 'r2',
       toReleaseId: 'r1',
-      fromRelease: { commitSha: 'bbbbbbb' },
-      toRelease: { commitSha: 'aaaaaaa' },
+      fromRelease: { commitSha: 'aaaaaaa', source: 'TEST' },
+      toRelease: { commitSha: 'aaaaaaa', source: 'PREVIEW' },
       attemptedAt: new Date('2026-11-11T10:00:05Z'),
       verifiedAt: new Date('2026-11-11T10:00:09Z'),
     };
     const [a] = toIncidentDto({ ...row, attempts: [attempt] }).attempts;
-    assert.equal(a.fromSha, 'bbbbbbb');
+    assert.equal(a.fromSha, 'aaaaaaa');
+    assert.equal(a.fromSource, 'TEST');
     assert.equal(a.toSha, 'aaaaaaa');
+    assert.equal(a.toSource, 'PREVIEW');
   });
 
   it('has null commits when the releases were not loaded', () => {
