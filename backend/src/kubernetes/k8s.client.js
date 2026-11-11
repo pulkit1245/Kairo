@@ -261,6 +261,35 @@ export async function listAppPods(namespace, app) {
 }
 
 /**
+ * FR-58: the newest pod's last `lines` log lines, with Kubernetes' timestamps.
+ * A container waiting to restart (crash loop) has no current log, so its last
+ * run's log is shown instead. null when the app has no pod.
+ * @returns {Promise<{ pod: string, previous: boolean, text: string } | null>}
+ */
+export async function newestPodLog(namespace, app, lines = 50) {
+  const [newest] = await appPods(namespace, app);
+  if (!newest) return null;
+  const read = (previous) =>
+    call((c) =>
+      c.makeApiClient(k8s.CoreV1Api).readNamespacedPodLog({
+        name: newest.name,
+        namespace,
+        container: app,
+        tailLines: lines,
+        timestamps: true,
+        previous,
+      }),
+    );
+  try {
+    return { pod: newest.name, previous: false, text: (await read(false)) ?? '' };
+  } catch (err) {
+    // 400: "container ... is waiting to start" (no current run to read)
+    if (!(err instanceof k8s.ApiException) || err.code !== 400) throw err;
+    return { pod: newest.name, previous: true, text: (await read(true).catch(() => '')) ?? '' };
+  }
+}
+
+/**
  * FR-73: did an action take effect? Every desired replica is up to date and
  * ready, and, when given: the Deployment runs `image`, asks for `replicas`,
  * and pod `gone` no longer exists (a restart).

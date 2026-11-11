@@ -24,17 +24,31 @@ async function call(path, params) {
  */
 export async function queryNumber(expr) {
   const data = await call('/api/v1/query', { query: expr });
-  if (data.resultType === 'scalar') return Number(data.result[1]);
+  if (data.resultType === 'scalar') return sample(data.result[1]);
   const first = data.result[0];
-  return first ? Number(first.value[1]) : null;
+  return first ? sample(first.value[1]) : null;
 }
+
+// a sample value; NaN (e.g. 0 errors / 0 requests) and Inf become null
+const sample = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 /**
  * A range query for one series: [[unixSeconds, value], ...]. Empty when
  * Prometheus has nothing for the range.
  */
-export async function querySeries(expr, { startSec, endSec, stepSec }) {
+export async function querySeries(expr, range) {
+  const [first] = await queryRange(expr, range);
+  return first ? first.points : [];
+}
+
+/**
+ * A range query for every series it returns: [{ labels, points }], where
+ * points are [[unixSeconds, value|null], ...].
+ */
+export async function queryRange(expr, { startSec, endSec, stepSec }) {
   const data = await call('/api/v1/query_range', { query: expr, start: startSec, end: endSec, step: stepSec });
-  const first = data.result[0];
-  return first ? first.values.map(([t, v]) => [Number(t), Number(v)]) : [];
+  return data.result.map((r) => ({ labels: r.metric, points: r.values.map(([t, v]) => [Number(t), sample(v)]) }));
 }

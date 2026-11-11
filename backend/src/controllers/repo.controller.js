@@ -1,5 +1,7 @@
 import { retrySetupPr } from '../generator/pr/pr.service.js';
 import { getApp, sendTraffic, updateApp } from '../services/app.service.js';
+import { appLogs } from '../services/logs.service.js';
+import { appMetrics } from '../services/metrics.service.js';
 import { breakApp } from '../testpanel/break.service.js';
 import { onboardRepo } from '../services/deployment.service.js';
 import { listRepos } from '../services/repo.service.js';
@@ -39,4 +41,14 @@ export async function traffic(req, res) {
 // POST /api/apps/:slug/break { kind: "kill-pod" | "broken-release" } (FR-63)
 export async function breakIt(req, res) {
   res.status(202).json(await breakApp(req.params.slug, req.body?.kind));
+}
+
+// GET /api/apps/:slug/metrics: KPIs and the last 30 min (FR-56, FR-57)
+export async function metrics(req, res) {
+  res.json(await appMetrics(req.params.slug));
+}
+
+// GET /api/apps/:slug/logs: the newest pod's last 50 lines (FR-58)
+export async function logs(req, res) {
+  res.json(await appLogs(req.params.slug));
 }

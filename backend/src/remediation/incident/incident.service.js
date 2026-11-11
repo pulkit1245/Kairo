@@ -248,13 +248,25 @@ export async function withRetry(what, write, delayMs = RETRY_DELAY_MS) {
 
 export const WRITE_FAILED = FAILED;
 
-export async function listIncidents(limit = 50) {
+// what an incident DTO needs: the app, and each attempt's releases (sha)
+const WITH_ATTEMPTS = {
+  app: true,
+  attempts: { include: { fromRelease: { select: { commitSha: true } }, toRelease: { select: { commitSha: true } } } },
+};
+
+export async function listIncidents(limit = 50, where = {}) {
   const rows = await prisma.incident.findMany({
+    where,
     orderBy: { startedAt: 'desc' },
     take: limit,
-    include: { app: true, attempts: true },
+    include: WITH_ATTEMPTS,
   });
   return rows.map(toIncidentDto);
+}
+
+// one incident row with its app and attempts, or null
+export function findIncident(id) {
+  return prisma.incident.findUnique({ where: { id }, include: WITH_ATTEMPTS });
 }
 
 // at boot (src/index.js)

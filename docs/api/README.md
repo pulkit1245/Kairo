@@ -112,6 +112,50 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
 | `traffic` | Send Traffic's current or last run, or `null` |
+| `incidents` | The app's latest 20 incidents, newest first, shaped as in `GET /api/incidents` (since P3) |
+
+## GET /api/apps/:slug/metrics
+
+The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries against Prometheus (`PROMETHEUS_URL`, the port-forward); nothing in the request becomes query text (FR-57).
+
+```json
+{
+  "window": { "startSec": 1762846200, "endSec": 1762848000, "stepSec": 15 },
+  "now": { "rps": 48.2, "errorRate": 0, "cpuCores": 0.41, "memoryBytes": 52428800, "replicasReady": 2, "replicasDesired": 2, "restarts": 0 },
+  "limits": { "cpuCoresPerPod": 0.5, "memoryBytesPerPod": 268435456, "maxReplicas": 3 },
+  "series": { "rps": [[1762846215, 0]], "errorRate": [[1762846215, null]], "cpu": [], "memory": [], "replicas": [] },
+  "failed": []
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `series.*` | The last 30 minutes, `[unixSeconds, value]`, one point per 15 s where Prometheus has one. `null` = no value (an error rate with no requests) |
+| `rps` | Requests per second through Traefik, 1-minute rate |
+| `errorRate` | Share of answers that were 5xx, 0 to 1; `null` with no traffic |
+| `cpu` | All pods together, in cores (`cpuCoresPerPod` is each pod's limit) |
+| `memory` | The largest pod's working set in bytes, the number the 256Mi limit applies to |
+| `replicas` | Available replicas; `now.replicasDesired` is what the Deployment asks for |
+| `now.restarts` | Container restarts by Kubernetes in the last 30 minutes (Kairo's restarts replace the pod, so they show as incidents instead) |
+| `now.*` | The newest point of each series |
+| `failed` | Names whose query failed; their values are `null` |
+
+503 when Prometheus doesn't answer at all.
+
+## GET /api/apps/:slug/logs
+
+The newest pod's last 50 log lines (FR-58), polled every 5 s. Nothing is stored.
+
+```json
+{
+  "pod": "kairo-python-sample-6c5775b86c-pdlbv",
+  "previous": false,
+  "lines": [{ "time": "2026-11-11T07:37:44.817787208Z", "text": "GET /" }],
+  "fetchedAt": "2026-11-11T07:37:46.000Z"
+}
+```
+
+`previous` is `true` when the container is waiting to restart (a crash loop) and the lines are from its last run. `pod` is `null` and `lines` empty when the app has no pod. 502 when the cluster doesn't answer.
 
 ## PATCH /api/apps/:slug
 
@@ -299,6 +343,8 @@ The latest 50 Incidents, newest first.
       "result": "SKIPPED",
       "fromReleaseId": null,
       "toReleaseId": null,
+      "fromSha": null,
+      "toSha": null,
       "attemptedAt": "2026-11-10T10:48:33.120Z",
       "verifiedAt": null
     }
@@ -316,6 +362,26 @@ The latest 50 Incidents, newest first.
 | `attempts[].trigger` | `AUTO`, `MANUAL` |
 | `attempts[].result` | `APPLIED` (ran, being checked), `VERIFIED` (took effect within 90 s), `UNVERIFIED` (didn't), `FAILED`, `SKIPPED` (dry run, no action for the alert, auto-heal off, given up, mid-rollout) |
 | `attempts[].fromReleaseId`, `toReleaseId` | For a rollback: the release rolled away from and the one rolled back to |
+| `attempts[].fromSha`, `toSha` | Those releases' commits (since P3) |
+
+## GET /api/incidents/:id
+
+One incident for the drawer (Stitch 08): the Incident above plus its app's memory around it. 404 for an unknown id.
+
+```json
+{
+  "…": "the Incident fields",
+  "memory": {
+    "startSec": 1762846200, "endSec": 1762846800, "stepSec": 15,
+    "limitBytes": 268435456,
+    "pod": "kairo-node-sample-76c4f85dc4-fxs5g",
+    "pods": [{ "pod": "kairo-node-sample-76c4f85dc4-fxs5g", "points": [[1762846215, 52428800]] }],
+    "error": null
+  }
+}
+```
+
+`pods` has each of the app's pods (up to 6, the incident's own `pod` first) from 5 minutes before the alert to 3 minutes after it resolved, or now while it is open, so a restarted pod's replacement shows too. `error` is set when Prometheus didn't answer; Prometheus keeps one day of data, so older incidents have no points.
 
 **Changed in P0:** removed `deploymentId` and `action`. Added `appId`, `explanation`, `githubIssueNumber` and `attempts`. `recoverySeconds` is now stored when the incident resolves instead of being worked out on every request.
 

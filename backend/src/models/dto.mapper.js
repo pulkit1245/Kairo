@@ -74,9 +74,10 @@ function prDto(app) {
  * The app page header and release list (P2c, Stitch 07).
  * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
  * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38),
- *          attentionReason, traffic: Send Traffic's current or last run }
+ *          attentionReason, traffic: Send Traffic's current or last run,
+ *          incidents: Incident DTOs }
  */
-export function toAppDto(row, { graceMs, storedImages, attentionReason = null, traffic = null }) {
+export function toAppDto(row, { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [] }) {
   const run = row.pipelineRuns?.[0] ?? null;
   const release = (r) => ({
     id: r.id,
@@ -115,6 +116,8 @@ export function toAppDto(row, { graceMs, storedImages, attentionReason = null, t
     // FR-35: Kairo rolls out new GHCR images once the setup PR is merged
     watchingGhcr: row.prState === 'MERGED',
     traffic,
+    // the app's latest incidents, newest first (P3b), as GET /api/incidents
+    incidents,
   };
 }
 
@@ -146,6 +149,9 @@ export function toIncidentDto(row) {
         result: a.result,
         fromReleaseId: a.fromReleaseId,
         toReleaseId: a.toReleaseId,
+        // the releases' commits, for "rolled back from … to …" (P3)
+        fromSha: a.fromRelease?.commitSha ?? null,
+        toSha: a.toRelease?.commitSha ?? null,
         attemptedAt: a.attemptedAt.toISOString(),
         verifiedAt: iso(a.verifiedAt),
       })),
