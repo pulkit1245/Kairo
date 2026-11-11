@@ -107,6 +107,30 @@ describe('Gemini client', () => {
     assert.equal(geminiStatus().state, 'down');
   });
 
+  it('skips a model out of daily quota until Google says, and stops calling when all are', async () => {
+    const quota = () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            status: 'RESOURCE_EXHAUSTED',
+            details: [
+              { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] },
+              { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '54399s' },
+            ],
+          },
+        }),
+        { status: 429 },
+      );
+    const f = fakeFetch([quota, quota]);
+    _setFetch(f);
+    assert.equal(await askGemini(q), null);
+    assert.equal(f.calls.length, 2);
+    // both out of quota for 15 hours: no call at all
+    assert.equal(await askGemini(q), null);
+    assert.equal(f.calls.length, 2);
+    assert.match(geminiStatus().detail, /out of quota until/);
+  });
+
   it("doesn't try another model when the request itself is wrong (400)", async () => {
     const f = fakeFetch([answer(null, 400)]);
     _setFetch(f);
