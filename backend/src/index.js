@@ -17,6 +17,7 @@ import { checkScaleDown, SCALE_DOWN_INTERVAL_MS } from './remediation/scaling/sc
 import { checkGhcr, WATCH_INTERVAL_MS } from './shipping/ghcr.watcher.js';
 import { configureGrace, rebuildGrace } from './shipping/grace.service.js';
 import { startTunnelsAtBoot, stopAllTunnels } from './tunnel/tunnel.service.js';
+import { checkGemini } from './gemini/gemini.client.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
 
@@ -66,6 +67,9 @@ async function main() {
   startTunnelsAtBoot()
     .then((n) => n > 0 && log.info(`starting ${n} public link(s)`))
     .catch((err) => log.error('could not start the public links', err));
+
+  // FR-20: is the key good and the model there? Only sets the header pill
+  checkGemini();
 
   const leftovers = await emptyWorkspace();
   if (leftovers > 0) log.warn(`removed ${leftovers} leftover clone folder(s) from the workspace`);

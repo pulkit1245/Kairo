@@ -1,4 +1,5 @@
 import { env } from '../config/env.config.js';
+import { geminiStatus } from '../gemini/gemini.client.js';
 import { pingCluster } from '../kubernetes/k8s.client.js';
 import { prisma } from '../db/index.js';
 
@@ -21,5 +22,7 @@ export async function health(_req, res) {
     cluster: cluster ? 'up' : 'down',
     // true = healing records incidents but never touches pods (REMEDIATION_DRY_RUN)
     dryRun: env.remediationDryRun,
+    // the last Gemini call's outcome: off, up, down or unknown (none yet)
+    gemini: geminiStatus(),
   });
 }

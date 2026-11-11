@@ -32,6 +32,10 @@ The API listens on every interface, not only localhost, because Alertmanager ins
 
 Each running app gets a public link through a Cloudflare quick tunnel (FR-40): one `cloudflared` process per app, started when the app reaches `RUNNING` and for every running app when the backend starts, pointed at Traefik (`TRAEFIK_URL`) with the host header `<slug>.kairo.local`. No Cloudflare account is needed. Install it with `brew install cloudflared`. A tunnel that dies is restarted within 30 s and its new link saved (FR-41); the link changes each time. `TUNNELS_ENABLED=false` turns them off; `CLOUDFLARED_PATH` points at another binary. The code is in `src/tunnel/tunnel.service.js`.
 
+### Gemini (P4)
+
+Gemini fills facts the rules couldn't find (the start file, so far) and explains failed builds and incidents (FR-17 to FR-20, FR-28, FR-53). It never writes files, and Kairo acts on its rules, not on Gemini. Put a key from aistudio.google.com in `GEMINI_API_KEY`; `GEMINI_ENABLED=false` turns every call off and the full loop still works. Calls go through plain `fetch` to `GEMINI_MODEL` (default `gemini-3.8-flash`, the newest Flash model on 11 Nov 2026), then `GEMINI_FALLBACK_MODEL` (default `gemini-3.6-flash`) when the first is busy or slower than `GEMINI_TIMEOUT_MS`. Fact answers and build explanations are cached in the `GeminiAnswer` table per commit sha. Before anything is sent, `.env*` and key files are left out and tokens, keys and passwords are redacted by pattern (`src/gemini/redact.service.js`). The code is in `src/gemini/` and `src/generator/detection/fill.service.js`.
+
 ### Sign-in and the GitHub App (P2)
 
 Sign-in uses the Kairo GitHub App's user authorization. `.env` needs the App's `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, the path of its private key (`GITHUB_APP_PRIVATE_KEY_PATH`, default `~/.kairo/kairo-github-app.pem`, outside the repo), a `SESSION_SECRET` (`openssl rand -hex 32`) and `ALLOWED_GITHUB_LOGINS`. The App's callback URL is `<APP_URL>/api/auth/callback`, with `APP_URL` defaulting to the Vite dev server, `http://localhost:5173`. Without these the backend still starts, warns, and every endpoint answers 401.
@@ -40,7 +44,7 @@ Installation tokens are minted for each request (`src/github/github.client.js` g
 
 ## Data model
 
-Eight tables, from PRD section 7 (`prisma/schema.prisma`):
+Nine tables, from PRD section 7 (`prisma/schema.prisma`):
 
 | Table | One row per |
 | --- | --- |
@@ -51,6 +55,7 @@ Eight tables, from PRD section 7 (`prisma/schema.prisma`):
 | `Release` | Image that ran for an app (used from P1) |
 | `Incident` | Alert that fired for an app, deduped on Alertmanager's fingerprint |
 | `RemediationAttempt` | Action Kairo took for an incident, and how it went |
+| `GeminiAnswer` | Gemini answer, cached per commit sha and question (P4) |
 
 Every enum exists three times: `src/types/`, `schema.prisma` and `frontend/src/types/enums.js`. Change all three in one commit, with a migration. `tests/unit/enums.test.js` fails if they drift.
 

@@ -54,6 +54,18 @@ export const env = {
   tunnelsEnabled: bool('TUNNELS_ENABLED', true),
   cloudflaredPath: process.env.CLOUDFLARED_PATH || 'cloudflared',
 
+  // Gemini (FR-17 to FR-20, FR-28, FR-53): fills facts the rules left unknown
+  // and explains failures. The key is a secret: read here, sent only in a
+  // header by src/gemini/, never logged. Off, or without a key, nothing calls it
+  gemini: {
+    enabled: bool('GEMINI_ENABLED', true),
+    apiKey: process.env.GEMINI_API_KEY || null,
+    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    // tried when the model is busy, failing or slow; empty = none
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash',
+    timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 15_000,
+  },
+
   // signs the session cookie. Without it nobody can sign in (FR-42)
   sessionSecret: process.env.SESSION_SECRET || null,
   // FR-2: GitHub logins that may sign in, comma separated, case doesn't matter
