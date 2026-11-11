@@ -7,7 +7,7 @@ import { ChartCanvas } from '../operations/ChartCanvas.jsx';
 import { themeColor } from '../operations/chart.setup.js';
 import { usePoll } from '../../hooks/usePoll.js';
 import { getIncident } from '../../services/api.js';
-import { actionDetail, actionText, attemptBadge, incidentTitle } from './incident.text.js';
+import { actionDetail, actionText, attemptBadge, incidentTitle, isManual } from './incident.text.js';
 
 // The incident drawer (Stitch 08): what happened, the pods' memory around
 // it, a timeline and the attempts. Refreshes every 5 s while the incident is
@@ -53,7 +53,7 @@ export function IncidentDrawer({ id, onClose }) {
         <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
           {incident && (
             <>
-              <Explanation incident={incident} />
+              {!isManual(incident) && <Explanation incident={incident} />}
               <MemoryChart incident={incident} />
               <Timeline incident={incident} />
               <Attempts incident={incident} />
@@ -89,7 +89,13 @@ function Header({ incident: i }) {
       </h2>
       <p className="text-body-md text-on-surface-variant">{i.cause}</p>
       <div className="flex flex-wrap items-center gap-2 font-mono text-code-sm">
-        <span className="rounded border border-error/40 bg-error-container/20 px-2 py-0.5 text-error">{i.alertName}</span>
+        {isManual(i) ? (
+          <span className="inline-flex items-center gap-1 rounded border border-secondary/40 px-2 py-0.5 text-secondary">
+            <Icon name="person" className="text-[14px]" /> Manual
+          </span>
+        ) : (
+          <span className="rounded border border-error/40 bg-error-container/20 px-2 py-0.5 text-error">{i.alertName}</span>
+        )}
         {i.status === 'RESOLVED' ? (
           <span className="inline-flex items-center gap-1 rounded border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 text-tertiary">
             <Icon name="check_circle" className="text-[14px]" /> Recovered in {i.recoverySeconds} s
@@ -98,6 +104,16 @@ function Header({ incident: i }) {
           <span className="inline-flex items-center gap-1 rounded border border-warning/40 bg-warning/10 px-2 py-0.5 text-warning">
             <Icon name="warning" className="text-[14px]" /> Open
           </span>
+        )}
+        {i.githubIssueUrl && (
+          <a
+            href={i.githubIssueUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded border border-outline-variant bg-surface-container px-2 py-0.5 text-primary hover:underline"
+          >
+            <Icon name="bug_report" className="text-[14px]" /> GitHub issue #{i.githubIssueNumber}
+          </a>
         )}
         {i.pod && (
           <span className="inline-flex items-center gap-1 rounded border border-outline-variant bg-surface-container px-2 py-0.5 text-on-surface-variant">
@@ -231,7 +247,11 @@ function MemoryChart({ incident }) {
 
 // alert fired, each action and its check, resolved: in time order, with T+s
 function events(i) {
-  const list = [{ t: i.startedAt, title: 'Alert fired', text: i.cause, icon: 'warning', tone: 'bad' }];
+  const list = [
+    isManual(i)
+      ? { t: i.startedAt, title: 'Rollback asked for', text: i.cause, icon: 'person', tone: 'busy' }
+      : { t: i.startedAt, title: 'Alert fired', text: i.cause, icon: 'warning', tone: 'bad' },
+  ];
   for (const a of i.attempts) {
     const badge = attemptBadge(a);
     list.push({

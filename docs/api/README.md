@@ -147,6 +147,7 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
+| `releases[].rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to (FR-61)", "the current release is still in its 60 s grace window" (since P4d) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
@@ -219,6 +220,16 @@ Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes re
 ```
 
 400 for another `kind`; 409 during a rollout or grace window, with no running release, or when the broken release already runs.
+
+## POST /api/apps/:slug/rollback
+
+"Roll back to this" from the release list (FR-60, FR-61, since P4d). Body `{ "releaseId": "…" }`, an earlier release that was marked healthy and whose image is still stored. It takes the automatic rollback's path with trigger `MANUAL`: the image is set, the target's 60 s grace window starts, the app is `HEALING`, and the 90 s check runs in the background. It is allowed while the app is `NEEDS_ATTENTION` and with auto-heal off, and a verified one ends `NEEDS_ATTENTION`. It is recorded as its own incident (`alertName: "ManualRollback"`, cause "Rolled back by <login> from the release list"), resolved when the check ends, and reported on the app's GitHub issue like any rollback (FR-55). 202 once the rollback ran:
+
+```json
+{ "incidentId": "…", "note": "rolled back to 9c8a2b0", "attempt": { "action": "ROLLBACK", "trigger": "MANUAL", "result": "APPLIED", "fromReleaseId": "…", "toReleaseId": "…", "…": "…" } }
+```
+
+`attempt.result` is `FAILED` if Kubernetes refused the change. 400 without `releaseId`; 404 for an unknown app or release; 409 with the reason (the same text as `rollbackBlockedBy`) for the running release, a release never marked healthy or Break It's, a pruned image or one no longer on the laptop, `REMEDIATION_DRY_RUN`, and during a rollout, a grace window or another action's check.
 
 ## DELETE /api/apps/:slug
 
@@ -395,6 +406,7 @@ The latest 50 Incidents, newest first.
   "resolvedAt": "2026-11-10T10:48:56.000Z",
   "recoverySeconds": 23,
   "githubIssueNumber": null,
+  "githubIssueUrl": null,
   "attempts": [
     {
       "id": "cmwakhgb40003sa1y2c7pk1ad",
@@ -419,6 +431,8 @@ The latest 50 Incidents, newest first.
 | Field | Values |
 | --- | --- |
 | `status` | `OPEN`, `RESOLVED` |
+| `alertName` | One of the five Kairo alerts, another alert's name (recorded, no action), or `ManualRollback` for a rollback from the release list (since P4d) |
+| `githubIssueNumber`, `githubIssueUrl` | The app's Kairo issue (label `kairo`) this incident opened or commented on, or `null` (since P4d). An issue opens on a rollback or when Kairo stops acting (`NEEDS_ATTENTION`), never for a restart alone; while it is open, every later incident comments on it (FR-55). Only apps added through the GitHub App get issues |
 | `pod` | The pod the alert named (its `pod` label), or `null` for an app-level alert (since P3) |
 | `recoverySeconds` | Seconds from start to resolve, one decimal; `null` while open |
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |

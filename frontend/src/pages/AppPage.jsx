@@ -59,9 +59,9 @@ export function AppPage() {
         <AppIncidents incidents={app.incidents} onOpen={setOpenIncident} />
         <LogsPanel slug={app.slug} />
       </div>
-      <Panel title="Releases" meta={`${app.releases.length} shown · last 3 images kept`}>
+      <Panel id="releases" title="Releases" meta={`${app.releases.length} shown · last 3 images kept`}>
         {app.releases.length ? (
-          <ReleaseTable releases={app.releases} now={now} />
+          <ReleaseTable slug={app.slug} releases={app.releases} now={now} />
         ) : (
           <PanelMessage>No releases yet. The first one is the preview.</PanelMessage>
         )}

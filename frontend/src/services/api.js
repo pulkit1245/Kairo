@@ -75,6 +75,8 @@ export const setAutoHeal = (slug, autoHeal) =>
 export const sendTraffic = (slug) => postJson(`${app(slug)}/traffic`);
 /** @param {'kill-pod' | 'broken-release'} kind */
 export const breakApp = (slug, kind) => postJson(`${app(slug)}/break`, { kind });
+// FR-61: "Roll back to this". 202 once the rollback ran; the 90 s check goes on
+export const rollbackTo = (slug, releaseId) => postJson(`${app(slug)}/rollback`, { releaseId });
 // FR-65: `confirm` must be the app's name
 export const deleteApp = (slug, confirm) =>
   request(app(slug), {

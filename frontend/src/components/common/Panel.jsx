@@ -1,8 +1,8 @@
 // The bordered box every list sits in, with the loading, error and empty states
 // handled the same way everywhere.
-export function Panel({ title, meta, children }) {
+export function Panel({ title, meta, children, id }) {
   return (
-    <section className="rounded border border-outline-variant bg-surface-container-low">
+    <section id={id} className="scroll-mt-4 rounded border border-outline-variant bg-surface-container-low">
       {(title || meta) && (
         <header className="flex items-center justify-between gap-4 border-b border-outline-variant px-4 py-3">
           <h2 className="font-mono text-code-md uppercase tracking-wider text-on-surface-variant">{title}</h2>
