@@ -5,7 +5,7 @@ import { storedImages } from '../shipping/prune.service.js';
 import { attentionReason, setAutoHealState } from '../remediation/healing/healing.state.js';
 import { rollbackBlocked } from '../remediation/healing/rollback.service.js';
 import { findIncident, listIncidents } from '../remediation/incident/incident.service.js';
-import { appSnapshot, incidentMemory } from './metrics.service.js';
+import { appSnapshot, clusterSnapshot, incidentMemory } from './metrics.service.js';
 import { startTraffic, trafficStatus } from '../testpanel/traffic.service.js';
 import { tunnelState } from '../tunnel/tunnel.service.js';
 import { AppError, NotFoundError } from '../utils/AppError.js';
@@ -19,6 +19,8 @@ const INCIDENTS_SHOWN = 20;
 // GET /api/apps: the Apps list (Stitch 06). Live apps only, deleted ones are
 // hidden (FR-65); apps whose onboarding failed are listed with the failed step
 export async function listApps() {
+  // the cluster card's numbers, alongside: at most CLUSTER_TIMEOUT_MS, never an error
+  const cluster = clusterSnapshot();
   const rows = await prisma.app.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: 'asc' },
@@ -26,6 +28,8 @@ export async function listApps() {
       releases: { where: { status: 'ACTIVE' }, orderBy: { deployedAt: 'desc' }, take: 1 },
       pipelineRuns: { orderBy: { startedAt: 'desc' }, take: 1 },
       incidents: { orderBy: { startedAt: 'desc' }, take: 1 },
+      // the sidebar's Incidents badge
+      _count: { select: { incidents: { where: { status: 'OPEN' } } } },
     },
   });
   const apps = await Promise.all(
@@ -41,7 +45,7 @@ export async function listApps() {
   );
   // running apps first, then the ones whose onboarding didn't finish; oldest first in each
   apps.sort((a, b) => Boolean(b.release) - Boolean(a.release));
-  return { apps, running: apps.filter((a) => a.release).length, maxRunning: MAX_RUNNING_APPS };
+  return { apps, running: apps.filter((a) => a.release).length, maxRunning: MAX_RUNNING_APPS, cluster: await cluster };
 }
 
 // GET /api/apps/:slug: the app page (P2c header, P3 fills in the rest)

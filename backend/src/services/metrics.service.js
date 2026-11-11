@@ -1,7 +1,7 @@
 import { prisma } from '../db/index.js';
 import { RESOURCES } from '../generator/template/config.service.js';
 import { MAX_REPLICAS } from '../remediation/action/executor.service.js';
-import { queryNumber, queryRange } from '../prometheus/prometheus.client.js';
+import { queryNumber, queryRange, queryVector } from '../prometheus/prometheus.client.js';
 import { AppError, errorMessage, NotFoundError } from '../utils/AppError.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -115,6 +115,34 @@ export async function appSnapshot(app) {
     // every query failed: Prometheus is down, not the app
     unavailable: results.every((r) => r.status === 'rejected'),
   };
+}
+
+// The sidebar's cluster card: the node's CPU and memory use against what it
+// can give pods. Data Prometheus already scrapes (the kubelet's resource
+// metrics and kube-state-metrics). Summed, so it reads the same on one node
+// or more.
+export const CLUSTER_QUERIES = {
+  cpu: 'sum(rate(node_cpu_usage_seconds_total[2m]))',
+  memory: 'sum(node_memory_working_set_bytes)',
+  allocatable: 'sum by (resource) (kube_node_status_allocatable{resource=~"cpu|memory"})',
+};
+// short: the Apps list waits for this, and must never be slowed by it
+export const CLUSTER_TIMEOUT_MS = 2000;
+
+/**
+ * { cpuCores, cpuTotal, memoryBytes, memoryTotalBytes }, each null when its
+ * query failed or timed out. The three run at once; never throws.
+ */
+export async function clusterSnapshot(deps = { queryNumber, queryVector, timeoutMs: CLUSTER_TIMEOUT_MS }) {
+  const opts = { timeoutMs: deps.timeoutMs };
+  const [cpu, memory, allocatable] = await Promise.allSettled([
+    deps.queryNumber(CLUSTER_QUERIES.cpu, opts),
+    deps.queryNumber(CLUSTER_QUERIES.memory, opts),
+    deps.queryVector(CLUSTER_QUERIES.allocatable, opts),
+  ]);
+  const value = (r) => (r.status === 'fulfilled' ? r.value : null);
+  const total = (resource) => (value(allocatable) ?? []).find((s) => s.labels.resource === resource)?.value ?? null;
+  return { cpuCores: value(cpu), cpuTotal: total('cpu'), memoryBytes: value(memory), memoryTotalBytes: total('memory') };
 }
 
 /**

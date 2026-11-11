@@ -98,12 +98,14 @@ The Apps list (since P4, Stitch 06): every app that isn't deleted, running apps 
       "tunnel": "up",
       "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
       "release": { "id": "…", "commitSha": "…", "commitMessage": "docs: rollout test 2", "source": "GHCR", "deployedAt": "…" },
+      "openIncidents": 0,
       "lastIncident": { "id": "…", "alertName": "KairoHighCpu", "cause": "…", "status": "RESOLVED", "startedAt": "…", "recoverySeconds": 45 },
       "now": { "rps": 0, "cpuCores": 0.001, "cpuShare": 0.002, "memoryBytes": 44040192, "memoryLimitBytes": 268435456, "replicasReady": 1, "replicasDesired": 1, "unavailable": false }
     }
   ],
   "running": 2,
-  "maxRunning": 3
+  "maxRunning": 3,
+  "cluster": { "cpuCores": 0.5, "cpuTotal": 4, "memoryBytes": 3023646720, "memoryTotalBytes": 5034045440 }
 }
 ```
 
@@ -113,6 +115,8 @@ The Apps list (since P4, Stitch 06): every app that isn't deleted, running apps 
 | `now` | One instant Prometheus query per number; `null` for an app with no release. A number is `null` when its query failed or has no data; `unavailable` is `true` when every query failed |
 | `now.cpuShare` | CPU of all pods as a share of what the ready pods may use (0.5 core each) |
 | `running` | Apps with an `ACTIVE` release; `maxRunning` is the limit (FR-9) |
+| `openIncidents` | The app's incidents still `OPEN`, for the sidebar's badge (since P4) |
+| `cluster` | The sidebar's cluster card (since P4): the node's CPU in cores and memory in bytes in use, against what Kubernetes can give pods (`kube_node_status_allocatable`). Three Prometheus queries run at once with a 2 s timeout, alongside the list; each value is `null` when its query failed or timed out, and the apps are returned either way |
 
 ## GET /api/apps/:slug
 

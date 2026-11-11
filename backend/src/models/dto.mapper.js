@@ -156,6 +156,8 @@ export function toAppSummaryDto(row, { attentionReason = null, tunnel = null, no
     release: active
       ? { id: active.id, commitSha: active.commitSha, commitMessage: active.commitMessage, source: active.source, deployedAt: iso(active.deployedAt) }
       : null,
+    // open incidents, for the sidebar's badge (P4 UI notes)
+    openIncidents: row._count?.incidents ?? 0,
     lastIncident: incident
       ? {
           id: incident.id,
