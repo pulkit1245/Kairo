@@ -1,17 +1,45 @@
 import { prisma } from '../db/index.js';
-import { toAppDto, toIncidentDto } from '../models/dto.mapper.js';
+import { toAppDto, toAppSummaryDto, toIncidentDto } from '../models/dto.mapper.js';
 import { GRACE_MS } from '../shipping/grace.service.js';
 import { storedImages } from '../shipping/prune.service.js';
 import { attentionReason, setAutoHealState } from '../remediation/healing/healing.state.js';
 import { findIncident, listIncidents } from '../remediation/incident/incident.service.js';
-import { incidentMemory } from './metrics.service.js';
+import { appSnapshot, incidentMemory } from './metrics.service.js';
 import { startTraffic, trafficStatus } from '../testpanel/traffic.service.js';
+import { tunnelState } from '../tunnel/tunnel.service.js';
 import { AppError, NotFoundError } from '../utils/AppError.js';
+import { MAX_RUNNING_APPS } from './deployment.service.js';
 
 // How many releases the app page lists. Pruning keeps 3 images (FR-38); the
 // rest stay listed so the history reads right, marked as no longer stored.
 const RELEASES_SHOWN = 10;
 const INCIDENTS_SHOWN = 20;
+
+// GET /api/apps: the Apps list (Stitch 06). Live apps only, deleted ones are
+// hidden (FR-65); apps whose onboarding failed are listed with the failed step
+export async function listApps() {
+  const rows = await prisma.app.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    include: {
+      releases: { where: { status: 'ACTIVE' }, orderBy: { deployedAt: 'desc' }, take: 1 },
+      pipelineRuns: { orderBy: { startedAt: 'desc' }, take: 1 },
+      incidents: { orderBy: { startedAt: 'desc' }, take: 1 },
+    },
+  });
+  const apps = await Promise.all(
+    rows.map(async (row) => {
+      const live = row.releases.length > 0;
+      return toAppSummaryDto(row, {
+        attentionReason: row.health === 'NEEDS_ATTENTION' ? attentionReason(row.slug) : null,
+        tunnel: tunnelState(row.slug),
+        // only apps with something deployed have numbers
+        now: live ? await appSnapshot(row) : null,
+      });
+    }),
+  );
+  return { apps, running: apps.filter((a) => a.release).length, maxRunning: MAX_RUNNING_APPS };
+}
 
 // GET /api/apps/:slug: the app page (P2c header, P3 fills in the rest)
 export async function getApp(slug) {
@@ -32,6 +60,7 @@ export async function getApp(slug) {
       attentionReason: app.health === 'NEEDS_ATTENTION' ? attentionReason(slug) : null,
       traffic: trafficStatus(slug),
       incidents,
+      tunnel: tunnelState(slug),
     },
   );
 }

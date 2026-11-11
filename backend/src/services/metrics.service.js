@@ -94,6 +94,30 @@ export async function appMetrics(slug, now = Date.now()) {
 }
 
 /**
+ * The Apps list's numbers (Stitch 06): one instant query each, no history.
+ * A query that fails, or an app with no pods, gives null; never throws.
+ */
+export async function appSnapshot(app) {
+  const q = appQueries(app);
+  const names = ['rps', 'cpu', 'memory', 'replicas', 'desired'];
+  const results = await Promise.allSettled(names.map((k) => queryNumber(q[k])));
+  const v = Object.fromEntries(names.map((k, i) => [k, results[i].status === 'fulfilled' ? results[i].value : null]));
+  const ready = v.replicas ?? 0;
+  return {
+    rps: v.rps,
+    cpuCores: v.cpu,
+    // of what the ready pods may use together
+    cpuShare: v.cpu !== null && ready > 0 ? v.cpu / (RESOURCES.cpuLimitCores * ready) : null,
+    memoryBytes: v.memory,
+    memoryLimitBytes: MEMORY_LIMIT_BYTES,
+    replicasReady: v.replicas,
+    replicasDesired: v.desired,
+    // every query failed: Prometheus is down, not the app
+    unavailable: results.every((r) => r.status === 'rejected'),
+  };
+}
+
+/**
  * The incident drawer's memory chart (Stitch 08): each of the app's pods
  * from 5 minutes before the alert to 3 minutes after it resolved (or now),
  * so the old pod ending and its replacement starting are both visible.

@@ -1,5 +1,5 @@
 import { retrySetupPr } from '../generator/pr/pr.service.js';
-import { deleteApp, getApp, sendTraffic, updateApp } from '../services/app.service.js';
+import { deleteApp, getApp, listApps, sendTraffic, updateApp } from '../services/app.service.js';
 import { appLogs } from '../services/logs.service.js';
 import { appMetrics } from '../services/metrics.service.js';
 import { breakApp } from '../testpanel/break.service.js';
@@ -9,6 +9,11 @@ import { listRepos } from '../services/repo.service.js';
 // GET /api/repos
 export async function list(req, res) {
   res.json(await listRepos(req.user.id));
+}
+
+// GET /api/apps: the Apps list (Stitch 06)
+export async function index(req, res) {
+  res.json(await listApps());
 }
 
 // POST /api/apps { repoFullName }: start onboarding from a picked repo (FR-3)
