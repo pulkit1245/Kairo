@@ -23,6 +23,11 @@ export const HEALTH_BLOCKING_ALERTS = Object.freeze(['KairoOOMKilled', 'KairoCra
 
 export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
+// Incident.alertName of a manual rollback from the release list (FR-61, P4d).
+// Not an alert: the incident is Kairo's own record of a person's rollback,
+// so it keeps its attempt and its 90 s check like any other
+export const MANUAL_ROLLBACK = 'ManualRollback';
+
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);
 
 // APPLIED    the action ran, not checked yet
@@ -70,5 +75,6 @@ export const ATTEMPT_RESULTS = Object.freeze([
  * @property {string | null} resolvedAt      ISO date
  * @property {number | null} recoverySeconds null while still open
  * @property {number | null} githubIssueNumber
+ * @property {string | null} githubIssueUrl   FR-55, P4d
  * @property {RemediationAttempt[]} attempts oldest first
  */

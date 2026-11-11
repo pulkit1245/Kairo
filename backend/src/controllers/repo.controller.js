@@ -2,6 +2,7 @@ import { retrySetupPr } from '../generator/pr/pr.service.js';
 import { deleteApp, getApp, listApps, sendTraffic, updateApp } from '../services/app.service.js';
 import { appLogs } from '../services/logs.service.js';
 import { appMetrics } from '../services/metrics.service.js';
+import { manualRollback } from '../remediation/healing/rollback.service.js';
 import { breakApp } from '../testpanel/break.service.js';
 import { onboardRepo } from '../services/deployment.service.js';
 import { listRepos } from '../services/repo.service.js';
@@ -46,6 +47,12 @@ export async function traffic(req, res) {
 // POST /api/apps/:slug/break { kind: "kill-pod" | "broken-release" } (FR-63)
 export async function breakIt(req, res) {
   res.status(202).json(await breakApp(req.params.slug, req.body?.kind));
+}
+
+// POST /api/apps/:slug/rollback { releaseId }: "Roll back to this" (FR-61).
+// 202: the rollback ran; its 90 s check continues in the background
+export async function rollback(req, res) {
+  res.status(202).json(await manualRollback(req.params.slug, req.body?.releaseId, req.user));
 }
 
 // GET /api/apps/:slug/metrics: KPIs and the last 30 min (FR-56, FR-57)

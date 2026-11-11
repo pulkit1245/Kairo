@@ -10,6 +10,7 @@ import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
 import { decideAction } from '../action/decision.service.js';
 import { heal } from '../healing/heal.service.js';
+import { reportIncident } from '../issue/issue.service.js';
 import * as memory from './incident.state.js';
 
 const log = createLogger('incidents');
@@ -99,8 +100,9 @@ async function openIncident(alert) {
   const saved = await saving;
   if (saved !== FAILED) {
     memory.markRecorded(alert.fingerprint, saved.id);
-    // 3. explain, in the background (FR-53)
-    explainLater(saved.id, record, logs);
+    // 3. explain, then the GitHub issue, in the background (FR-53, FR-55).
+    // The issue waits for the explanation so it can include it
+    explainLater(saved.id, record, logs).then(() => reportIncident(saved.id).catch(() => {}));
   }
   // else: the record stays in memory as pending, for the resolve or the flush
   return 'opened';
@@ -120,10 +122,11 @@ function readIncidentLogs(app, alert) {
 
 // FR-53: Gemini's explanation, stored next to the rule-based cause once it
 // arrives. Never throws and never holds up anything: the incident is already
-// recorded and acted on. FR-51: this runs with auto-heal off too
+// recorded and acted on. FR-51: this runs with auto-heal off too. Resolves
+// when it is done (stored or not)
 function explainLater(incidentId, record, logsRead) {
-  if (!logsRead) return;
-  (async () => {
+  if (!logsRead) return Promise.resolve();
+  return (async () => {
     const logs = await logsRead;
     const explanation = await explainIncident({
       alertName: record.alertName,
@@ -171,6 +174,7 @@ async function runDeferred(fingerprint) {
   );
   followUp(saving.then((saved) => (saved === FAILED ? null : saved.id)));
   if ((await saving) === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
+  else reportIncident(entry.incidentId).catch(() => {}); // FR-55
 }
 
 // the SKIPPED attempt of an alert that resolved while its action waited for

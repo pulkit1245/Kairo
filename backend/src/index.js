@@ -13,6 +13,7 @@ import {
 import { rebuild as rebuildHealingState } from './remediation/healing/healing.state.js';
 import { clearOnHealthyRelease, clearQuietApps } from './remediation/healing/health.service.js';
 import { resumeVerifications } from './remediation/healing/verify.service.js';
+import { closeLeftoverManual } from './remediation/healing/rollback.service.js';
 import { checkScaleDown, SCALE_DOWN_INTERVAL_MS } from './remediation/scaling/scaledown.service.js';
 import { checkGhcr, WATCH_INTERVAL_MS } from './shipping/ghcr.watcher.js';
 import { configureGrace, rebuildGrace } from './shipping/grace.service.js';
@@ -46,6 +47,9 @@ async function main() {
   try {
     const stuck = await failInterruptedRuns();
     if (stuck > 0) log.warn(`marked ${stuck} half-finished pipeline run(s) as FAILED`);
+    // a manual rollback has no alert to resolve it: close any the restart left open
+    const leftover = await closeLeftoverManual();
+    if (leftover > 0) log.info(`closed ${leftover} manual rollback incident(s) left open`);
     // FR-74: healing decides from memory, filled from the database once here
     const state = await rebuildIncidentState();
     const healing = await rebuildHealingState();

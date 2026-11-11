@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { breakIt, index, list, logs, metrics, onboard, remove, retryPr, show, traffic, update } from '../controllers/repo.controller.js';
+import { breakIt, index, list, logs, metrics, onboard, remove, retryPr, rollback, show, traffic, update } from '../controllers/repo.controller.js';
 
 export const repoRouter = Router();
 repoRouter.route('/').get(list);
@@ -12,3 +12,4 @@ appRouter.route('/:slug/logs').get(logs);
 appRouter.route('/:slug/traffic').post(traffic);
 appRouter.route('/:slug/break').post(breakIt);
 appRouter.route('/:slug/pr').post(retryPr);
+appRouter.route('/:slug/rollback').post(rollback);

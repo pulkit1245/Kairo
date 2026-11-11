@@ -3,6 +3,7 @@ import { toAppDto, toAppSummaryDto, toIncidentDto } from '../models/dto.mapper.j
 import { GRACE_MS } from '../shipping/grace.service.js';
 import { storedImages } from '../shipping/prune.service.js';
 import { attentionReason, setAutoHealState } from '../remediation/healing/healing.state.js';
+import { rollbackBlocked } from '../remediation/healing/rollback.service.js';
 import { findIncident, listIncidents } from '../remediation/incident/incident.service.js';
 import { appSnapshot, incidentMemory } from './metrics.service.js';
 import { startTraffic, trafficStatus } from '../testpanel/traffic.service.js';
@@ -63,6 +64,8 @@ export async function getApp(slug) {
       traffic: trafficStatus(slug),
       incidents,
       tunnel: tunnelState(slug),
+      // judged against every release, not just the ones shown (pruning keeps 3)
+      rollbackBlocked: (r) => rollbackBlocked(app, r),
     },
   );
 }

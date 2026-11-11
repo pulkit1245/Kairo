@@ -148,6 +148,49 @@ export async function getBranchHead(githubInstallationId, owner, repo, branch) {
   return { sha: data.commit.sha, message: data.commit.commit.message.split('\n')[0] };
 }
 
+// ---------- issues (FR-55) ----------
+
+export const ISSUE_LABEL = 'kairo';
+
+// The repo's open issue labelled `kairo` that this App opened, or null.
+// GitHub is the record: if someone closed it, the next one opens a new issue
+export async function findOpenKairoIssue(githubInstallationId, owner, repo) {
+  const gh = installationClient(githubInstallationId);
+  const { data } = await gh.rest.issues.listForRepo({ owner, repo, labels: ISSUE_LABEL, state: 'open', per_page: 30 });
+  const bot = env.github.appSlug ? `${env.github.appSlug}[bot]` : null;
+  const ours = data.filter((i) => !i.pull_request && (bot ? i.user?.login === bot : i.user?.type === 'Bot'));
+  // the oldest, if there were ever two
+  const issue = ours.sort((a, b) => a.number - b.number)[0];
+  return issue ? { number: issue.number, url: issue.html_url } : null;
+}
+
+/** @returns {Promise<{ number: number, url: string }>} */
+export async function openKairoIssue(githubInstallationId, owner, repo, { title, body }) {
+  const gh = installationClient(githubInstallationId);
+  await ensureLabel(gh, owner, repo);
+  const { data } = await gh.rest.issues.create({ owner, repo, title, body, labels: [ISSUE_LABEL] });
+  return { number: data.number, url: data.html_url };
+}
+
+export async function commentOnIssue(githubInstallationId, owner, repo, number, body) {
+  const { data } = await installationClient(githubInstallationId).rest.issues.createComment({ owner, repo, issue_number: number, body });
+  return { url: data.html_url };
+}
+
+// the label is made once per repo, the first time Kairo opens an issue there
+async function ensureLabel(gh, owner, repo) {
+  try {
+    await gh.rest.issues.getLabel({ owner, repo, name: ISSUE_LABEL });
+  } catch (err) {
+    if (err?.status !== 404) throw err;
+    await gh.rest.issues
+      .createLabel({ owner, repo, name: ISSUE_LABEL, color: '0e7490', description: 'Opened by Kairo when it rolls back or stops acting on the app' })
+      .catch((e) => {
+        if (e?.status !== 422) throw e; // 422: made meanwhile
+      });
+  }
+}
+
 function toRepo(r) {
   return {
     fullName: r.full_name,

@@ -77,7 +77,10 @@ function prDto(app) {
  *          attentionReason, traffic: Send Traffic's current or last run,
  *          incidents: Incident DTOs }
  */
-export function toAppDto(row, { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [], tunnel = null }) {
+export function toAppDto(
+  row,
+  { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [], tunnel = null, rollbackBlocked = () => 'not offered' },
+) {
   const run = row.pipelineRuns?.[0] ?? null;
   const release = (r) => ({
     id: r.id,
@@ -91,6 +94,9 @@ export function toAppDto(row, { graceMs, storedImages, attentionReason = null, t
     graceEndsAt: iso(new Date(r.deployedAt.getTime() + graceMs)),
     // FR-38: pruned images can't be rolled back to (FR-50)
     imageStored: storedImages.has(r.imageRef),
+    // FR-61: "Roll back to this" is offered on earlier healthy releases whose
+    // image is stored; null when it can run now, else why not (e.g. a grace window)
+    rollbackBlockedBy: rollbackBlocked(r),
   });
   const active = row.releases.find((r) => r.status === 'ACTIVE');
   return {
@@ -182,6 +188,8 @@ export function toIncidentDto(row) {
     resolvedAt: iso(row.resolvedAt),
     recoverySeconds: row.recoverySeconds,
     githubIssueNumber: row.githubIssueNumber,
+    // FR-55: the app's Kairo issue this incident opened or commented on
+    githubIssueUrl: row.githubIssueNumber && row.app.repoFullName ? `https://github.com/${row.app.repoFullName}/issues/${row.githubIssueNumber}` : null,
     attempts: [...(row.attempts ?? [])]
       .sort((a, b) => a.attemptedAt - b.attemptedAt)
       .map((a) => ({
