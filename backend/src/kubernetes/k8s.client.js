@@ -311,6 +311,27 @@ export async function newestPodLog(namespace, app, lines = 50) {
 }
 
 /**
+ * FR-53: an incident's log lines, for Gemini. The alert's pod when it names
+ * one, else the newest. preferPrevious reads the run that ended first (an OOM
+ * kill or a crash), falling back to the current run, and the other way round.
+ * No timestamps: they only cost tokens. null when there is no pod or no log.
+ * @returns {Promise<{ pod: string, previous: boolean, text: string } | null>}
+ */
+export async function incidentPodLog(namespace, app, { pod = null, lines = 50, preferPrevious = false } = {}) {
+  const name = pod ?? (await appPods(namespace, app))[0]?.name;
+  if (!name) return null;
+  const read = (previous) =>
+    call((c) =>
+      c.makeApiClient(k8s.CoreV1Api).readNamespacedPodLog({ name, namespace, container: app, tailLines: lines, previous }),
+    ).then((t) => (t ?? '').trim() || null, () => null);
+  for (const previous of preferPrevious ? [true, false] : [false, true]) {
+    const text = await read(previous);
+    if (text) return { pod: name, previous, text };
+  }
+  return null;
+}
+
+/**
  * FR-73: did an action take effect? Every desired replica is up to date and
  * ready, and, when given: the Deployment runs `image`, asks for `replicas`,
  * and pod `gone` no longer exists (a restart).

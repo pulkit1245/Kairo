@@ -1,6 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { AppError } from '../../utils/AppError.js';
 
 // Python facts (FR-14, M7): where the dependencies are, the Python version,
 // the framework, the entry module and app variable, and the server command.
@@ -19,7 +18,8 @@ import { AppError } from '../../utils/AppError.js';
 //   no framework  `python main.py` / app.py / server.py, as before P4
 //
 // Only *.py files and the manifests are read; never .env files or anything
-// else. Facts Kairo can't find are left out for Gemini to fill (FR-17, P4c).
+// else. A start Kairo can't find is listed as unknown for Gemini to fill
+// (FR-17, fill.service.js); applyPythonStart() checks and uses its answer.
 
 export const PYTHON_PORT = 8000;
 export const DEFAULT_PYTHON_VERSION = '3.12';
@@ -50,7 +50,7 @@ const byDefault = (value, from) => ({ value, source: 'default', from });
  * @returns {Promise<{ startCommand: string[]|null, python: object }>}
  *   python: { version, framework, install, packages, serverPackage, collectstatic }
  */
-export async function detectPython(dir, facts, assumptions, { needStart }) {
+export async function detectPython(dir, facts, assumptions, unknown, { needStart }) {
   const read = (f) => readFile(path.join(dir, f), 'utf8').catch(() => null);
   const requirements = await read('requirements.txt');
   const pyproject = requirements === null ? await read('pyproject.toml') : null;
@@ -135,7 +135,21 @@ export async function detectPython(dir, facts, assumptions, { needStart }) {
     const what = frameworkKey
       ? `a ${FRAMEWORKS[frameworkKey].label} app Kairo could find`
       : `a Django, FastAPI or Flask dependency, or one of ${SCRIPT_ENTRYPOINTS.join(', ')} in the repo root`;
-    throw new AppError(`Python project has no start command: it needs ${what}`);
+    const label = frameworkKey && FRAMEWORKS[frameworkKey].label;
+    unknown.push({
+      fact: 'startCommand',
+      ask: frameworkKey === 'DJANGO' ? 'DJANGO_WSGI' : frameworkKey ? 'PYTHON_APP' : 'PYTHON_START_FILE',
+      reason: `Python project has no start command: it needs ${what}`,
+      hint: frameworkKey === 'DJANGO'
+        ? 'Django is a dependency, but no wsgi.py calling get_wsgi_application() was found in the root or one folder down.'
+        : frameworkKey
+          ? `${label} is a dependency, but no top-level \`app = ${label}(...)\` line was found in the root or one folder down.`
+          : `No web framework is a dependency, and there is no ${SCRIPT_ENTRYPOINTS.join(', ')} in the root.`,
+      framework: frameworkKey,
+      // to install the server if Gemini finds the app and the repo doesn't list it
+      deps,
+      depsFrom: from,
+    });
   }
 
   facts.port = byDefault(PYTHON_PORT, 'injected as $PORT (FR-16)');
@@ -315,13 +329,66 @@ async function readHead(dir, rel) {
   return text.slice(0, MAX_BYTES);
 }
 
-// "pkg/main.py" -> where to run from and the module name
+// "pkg/main.py" -> where to run from and the module name. The folders right
+// above the file that have an __init__.py are its package; the server runs
+// from the folder above them
 async function moduleOf(dir, rel) {
   const parts = rel.replace(/\.py$/, '').split('/');
-  if (parts.length === 1) return { module: parts[0], chdir: null };
-  const pkg = parts[0];
-  const isPackage = await readFile(path.join(dir, pkg, '__init__.py')).then(() => true, () => false);
-  return isPackage ? { module: parts.join('.'), chdir: null } : { module: parts.at(-1), chdir: pkg };
+  const folders = parts.slice(0, -1);
+  let k = 0;
+  while (k < folders.length) {
+    const pkg = folders.slice(0, folders.length - k).join('/');
+    if (!(await readFile(path.join(dir, pkg, '__init__.py')).then(() => true, () => false))) break;
+    k++;
+  }
+  const chdir = folders.slice(0, folders.length - k).join('/') || null;
+  return { module: [...folders.slice(folders.length - k), parts.at(-1)].join('.'), chdir };
+}
+
+/**
+ * Uses Gemini's answer for a Python start (detection.service.js
+ * applyGeminiFact): the file must hold what it says (FR-19).
+ * @returns {Promise<string|null>} null when used, else why it was dropped
+ */
+export async function applyPythonStart(dir, detected, item, rel, variable, why) {
+  if (!rel.endsWith('.py')) return `${rel} isn't a .py file`;
+  const { facts, assumptions } = detected;
+  if (item.ask === 'PYTHON_START_FILE') {
+    detected.startCommand = ['python', rel];
+    facts.startCommand = { value: `python ${rel}`, source: 'gemini', from: why };
+    assumptions.push(`Gemini picked ${rel} as the start file: ${why}`);
+    return null;
+  }
+
+  const fw = FRAMEWORKS[item.framework];
+  const text = await readHead(dir, rel);
+  let entry;
+  if (item.ask === 'DJANGO_WSGI') {
+    if (!/get_wsgi_application\(/.test(text)) return `${rel} doesn't call get_wsgi_application()`;
+    const { module, chdir } = await moduleOf(dir, rel);
+    entry = { target: module, chdir };
+  } else {
+    const v = String(variable ?? '').trim();
+    const factory = /^([A-Za-z_]\w*)\(\)$/.exec(v)?.[1];
+    const name = factory ?? (/^[A-Za-z_]\w*$/.test(v) ? v : null);
+    if (!name) return `"${v}" isn't a variable name`;
+    const defined = factory
+      ? new RegExp(`^def ${name}\\(`, 'm').test(text)
+      : new RegExp(`^${name}\\s*(?::[^=\\n]+)?=`, 'm').test(text);
+    if (!defined) return `${rel} has no top-level ${factory ? `def ${name}()` : `${name} = ...`}`;
+    const { module, chdir } = await moduleOf(dir, rel);
+    entry = { target: `${module}:${factory ? `${name}()` : name}`, chdir };
+  }
+
+  detected.startCommand = serverCommand(fw.server, entry);
+  facts.appEntry = { value: entry.target, source: 'gemini', from: why };
+  facts.startCommand = { value: detected.startCommand.join(' '), source: 'gemini', from: why };
+  assumptions.push(`Gemini found the ${fw.label} app in ${rel}: ${why}`);
+  if (!item.deps.includes(fw.server)) {
+    detected.python.serverPackage = fw.server;
+    assumptions.push(`${fw.server} isn't in ${item.depsFrom}; Kairo installs it in the image to serve the app.`);
+  }
+  return null;
 }
 
 async function findApp(dir, fw) {
