@@ -44,12 +44,14 @@ beforeEach(() => {
     spawned.push(child);
     return child;
   });
-  tunnel._setTiming({ restartDelayMs: 20, maxRestartDelayMs: 80, readyWithinMs: 200, stableAfterMs: 60_000 });
+  tunnel._setTiming({ restartDelayMs: 20, maxRestartDelayMs: 80, readyWithinMs: 200, stableAfterMs: 60_000, dnsWithinMs: 100, dnsPollMs: 10 });
+  tunnel._setDnsCheck(async () => true);
   prisma.app.updateMany = async (args) => (saved.push(args.data.publicUrl), { count: 1 });
 });
 afterEach(() => {
   tunnel._reset();
   tunnel._setSpawn(null);
+  tunnel._setDnsCheck(null);
   prisma.app.updateMany = original;
 });
 
@@ -73,6 +75,28 @@ describe('the public link (FR-40, FR-41)', () => {
     await until(() => saved.length === 1);
     assert.deepEqual(saved, ['https://first-words-here.trycloudflare.com']);
     assert.equal(tunnel.tunnelState('demo'), 'up');
+  });
+
+  it('waits for the name to resolve before showing the link', async () => {
+    let resolvable = false;
+    tunnel._setDnsCheck(async () => resolvable);
+    tunnel.startTunnel(APP);
+    spawned[0].comeUp('new-name');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.deepEqual(saved, [], 'not before DNS has it');
+    assert.equal(tunnel.tunnelState('demo'), 'starting');
+    resolvable = true;
+    await until(() => saved.length === 1);
+    assert.equal(saved[0], 'https://new-name.trycloudflare.com');
+  });
+
+  it('shows the link anyway if the name never resolves', async () => {
+    tunnel._setDnsCheck(async () => false);
+    tunnel.startTunnel(APP);
+    spawned[0].comeUp('slow-name');
+    await until(() => saved.length === 1, 1000);
+    // and the stuck-tunnel timer didn't kill a connected tunnel
+    assert.equal(spawned.length, 1);
   });
 
   it('starts one tunnel per app', () => {

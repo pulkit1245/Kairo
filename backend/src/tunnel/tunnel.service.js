@@ -1,4 +1,5 @@
 import { execFile, spawn as nodeSpawn } from 'node:child_process';
+import { promises as dns } from 'node:dns';
 import { createInterface } from 'node:readline';
 import { env } from '../config/env.config.js';
 import { prisma } from '../db/index.js';
@@ -11,12 +12,18 @@ import { createLogger } from '../utils/logger.js';
 // the app's Ingress like any other and is counted (FR-39).
 //
 //   start: spawn cloudflared -> it prints https://<words>.trycloudflare.com
-//          -> once it says "Registered tunnel connection" the link works,
-//          and it is saved as App.publicUrl
+//          -> it says "Registered tunnel connection" -> Cloudflare's own
+//          nameservers answer for the name -> saved as App.publicUrl
 //   dies:  publicUrl cleared, a new process after 2 s (longer if it keeps
 //          dying, never over 20 s), new link saved: within 30 s (FR-41)
 //   stuck: no working link 25 s after starting -> killed, same as dying
 //   stop:  on delete (FR-65) and when the backend shuts down
+//
+// Why wait for DNS: the name's record appears a few seconds after the
+// connection. A resolver that asks before that caches "no such name" (for
+// at least a minute), so a link shown too early fails for whoever clicks it.
+// Kairo asks the authoritative nameservers, which never cache, and shows the
+// link only once they answer.
 //
 // Quick tunnels need no Cloudflare account; the link changes every time the
 // process starts. Kairo's own dashboard and API are never tunnelled (FR-42).
@@ -34,12 +41,16 @@ const timing = {
   readyWithinMs: 25_000,
   // a process that dies sooner than this after working counts as failing again
   stableAfterMs: 60_000,
+  // how long to wait for the name to resolve before saving the link anyway
+  dnsWithinMs: 20_000,
+  dnsPollMs: 1000,
 };
 
 // slug -> { app, child, url, pendingUrl, failures, readyTimer, restartTimer, stopping, startedAt }
 const tunnels = new Map();
 let spawn = nodeSpawn;
 let missingBinary = false;
+let dnsReady = nameResolves;
 
 export function tunnelArgs(slug) {
   return ['tunnel', '--no-autoupdate', '--url', env.traefikUrl, '--http-host-header', `${slug}${HOST_SUFFIX}`];
@@ -62,6 +73,7 @@ function launch(entry) {
   const { slug } = entry.app;
   entry.url = null;
   entry.pendingUrl = null;
+  entry.connected = false;
   entry.startedAt = Date.now();
   let child;
   try {
@@ -92,7 +104,7 @@ function launch(entry) {
   });
 
   entry.readyTimer = setTimeout(() => {
-    if (entry.child !== child || entry.url) return;
+    if (entry.child !== child || entry.connected) return;
     log.warn(`${slug}: no working link ${timing.readyWithinMs / 1000} s after starting cloudflared; restarting it`);
     child.kill('SIGTERM');
   }, timing.readyWithinMs);
@@ -104,11 +116,43 @@ function onLine(entry, child, line) {
   const url = !entry.pendingUrl && line.match(URL_RE)?.[0];
   if (url) entry.pendingUrl = url;
   // the link answers once the first connection to Cloudflare is up
-  if (!entry.url && entry.pendingUrl && READY_RE.test(line)) {
-    entry.url = entry.pendingUrl;
+  if (!entry.connected && entry.pendingUrl && READY_RE.test(line)) {
+    entry.connected = true;
     clearTimeout(entry.readyTimer);
-    log.info(`${entry.app.slug}: public link ${entry.url} (${Math.round((Date.now() - entry.startedAt) / 1000)} s)`);
-    savePublicUrl(entry.app, entry.url);
+    publishWhenResolvable(entry, child, entry.pendingUrl);
+  }
+}
+
+// saves the link once its name resolves (see the top), or after dnsWithinMs
+async function publishWhenResolvable(entry, child, url) {
+  const host = new URL(url).hostname;
+  const until = Date.now() + timing.dnsWithinMs;
+  let resolved = false;
+  while (!(resolved = await dnsReady(host)) && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, timing.dnsPollMs));
+    if (entry.child !== child || entry.stopping) return;
+  }
+  if (entry.child !== child || entry.stopping) return;
+  if (!resolved) log.warn(`${entry.app.slug}: ${host} didn't resolve within ${timing.dnsWithinMs / 1000} s; showing it anyway`);
+  entry.url = url;
+  log.info(`${entry.app.slug}: public link ${url} (${Math.round((Date.now() - entry.startedAt) / 1000)} s)`);
+  savePublicUrl(entry.app, url);
+}
+
+// asks trycloudflare.com's own nameservers, found once and kept
+let authoritative = null;
+async function nameResolves(host) {
+  try {
+    if (!authoritative) {
+      const names = await dns.resolveNs('trycloudflare.com');
+      const ips = (await Promise.all(names.map((n) => dns.lookup(n).then((r) => r.address, () => null)))).filter(Boolean);
+      if (!ips.length) return false;
+      authoritative = new dns.Resolver({ timeout: 2000, tries: 1 });
+      authoritative.setServers(ips);
+    }
+    return (await authoritative.resolve4(host)).length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -202,6 +246,9 @@ function savePublicUrl(app, publicUrl) {
 export function _setSpawn(fn) {
   spawn = fn ?? nodeSpawn;
   missingBinary = false;
+}
+export function _setDnsCheck(fn) {
+  dnsReady = fn ?? nameResolves;
 }
 export function _setTiming(t) {
   Object.assign(timing, t);
