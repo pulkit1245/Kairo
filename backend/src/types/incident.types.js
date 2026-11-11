@@ -17,6 +17,10 @@ export const ALERT_NAMES = Object.freeze([
   'KairoHighLatency',
 ]);
 
+// FR-72 (added 11 Nov): one of these firing inside a release's grace window
+// keeps it from being marked healthy, even if it resolves before the end
+export const HEALTH_BLOCKING_ALERTS = Object.freeze(['KairoOOMKilled', 'KairoCrashLoop']);
+
 export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);
@@ -25,7 +29,10 @@ export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);
 // VERIFIED   the check afterwards passed (FR-73, P3)
 // UNVERIFIED the check timed out, app goes to NEEDS_ATTENTION
 // FAILED     the action itself errored
-// SKIPPED    nothing was done: dry run, no action for this alert, or not built yet
+// SKIPPED    nothing was done: dry run, no action for this alert, auto-heal
+//            off, given up, a rollout or another action in progress, or the
+//            alert resolved during a grace window before its deferred action
+// SKIPPED, UNVERIFIED and FAILED attempts carry a `reason` saying why (P3)
 export const ATTEMPT_RESULTS = Object.freeze([
   'APPLIED',
   'VERIFIED',
@@ -46,6 +53,7 @@ export const ATTEMPT_RESULTS = Object.freeze([
  * @property {string | null} toReleaseId
  * @property {string} attemptedAt           ISO date
  * @property {string | null} verifiedAt     ISO date
+ * @property {string | null} reason         why it was SKIPPED, UNVERIFIED or FAILED (P3)
  */
 
 /**

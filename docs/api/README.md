@@ -105,10 +105,98 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | Field | Meaning |
 | --- | --- |
 | `release` | The `ACTIVE` release, or `null` |
-| `releases[].source` | `PREVIEW` (built on the laptop during onboarding) or `GHCR` (built by the repo's workflow, rolled out by Kairo) |
+| `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
+| `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
+| `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
+| `traffic` | Send Traffic's current or last run, or `null` |
+| `incidents` | The app's latest 20 incidents, newest first, shaped as in `GET /api/incidents` (since P3) |
+
+## GET /api/apps/:slug/metrics
+
+The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries against Prometheus (`PROMETHEUS_URL`, the port-forward); nothing in the request becomes query text (FR-57).
+
+```json
+{
+  "window": { "startSec": 1762846200, "endSec": 1762848000, "stepSec": 15 },
+  "now": { "rps": 48.2, "errorRate": 0, "cpuCores": 0.41, "memoryBytes": 52428800, "replicasReady": 2, "replicasDesired": 2, "restarts": 0 },
+  "limits": { "cpuCoresPerPod": 0.5, "memoryBytesPerPod": 268435456, "maxReplicas": 3 },
+  "series": { "rps": [[1762846215, 0]], "errorRate": [[1762846215, null]], "cpu": [], "memory": [], "replicas": [] },
+  "failed": []
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `series.*` | The last 30 minutes, `[unixSeconds, value]`, one point per 15 s where Prometheus has one. `null` = no value (an error rate with no requests) |
+| `rps` | Requests per second through Traefik, 1-minute rate |
+| `errorRate` | Share of answers that were 5xx, 0 to 1; `null` with no traffic |
+| `cpu` | All pods together, in cores (`cpuCoresPerPod` is each pod's limit) |
+| `memory` | The largest pod's working set in bytes, the number the 256Mi limit applies to |
+| `replicas` | Available replicas; `now.replicasDesired` is what the Deployment asks for |
+| `now.restarts` | Container restarts by Kubernetes in the last 30 minutes (Kairo's restarts replace the pod, so they show as incidents instead) |
+| `now.*` | The newest point of each series |
+| `failed` | Names whose query failed; their values are `null` |
+
+503 when Prometheus doesn't answer at all.
+
+## GET /api/apps/:slug/logs
+
+The newest pod's last 50 log lines (FR-58), polled every 5 s. Nothing is stored.
+
+```json
+{
+  "pod": "kairo-python-sample-6c5775b86c-pdlbv",
+  "previous": false,
+  "lines": [{ "time": "2026-11-11T07:37:44.817787208Z", "text": "GET /" }],
+  "fetchedAt": "2026-11-11T07:37:46.000Z"
+}
+```
+
+`previous` is `true` when the container is waiting to restart (a crash loop) and the lines are from its last run. `pod` is `null` and `lines` empty when the app has no pod. 502 when the cluster doesn't answer.
+
+## PATCH /api/apps/:slug
+
+`{ "autoHeal": false }` turns automatic healing off or on for the app (FR-51), and returns the app as `GET /api/apps/:slug` does. With it off, alerts still open incidents, each with a `SKIPPED` attempt that names the action Kairo would have taken, the app shows `NEEDS_ATTENTION`, and nothing in the cluster changes. 400 unless `autoHeal` is a boolean.
+
+## POST /api/apps/:slug/traffic
+
+Send Traffic (FR-62): 50 requests a second for 60 s, through Traefik with the app's host. If the app answers `/work`, the requests are `GET /work?ms=20`, which burns CPU so scaling fires; otherwise `GET /`. 202:
+
+```json
+{ "path": "/work?ms=20", "rps": 50, "startedAt": "…", "endsAt": "…" }
+```
+
+409 while traffic is already going to the app. Progress shows on `GET /api/apps/:slug` as `traffic: { running, path, startedAt, endsAt, sent, ok, failed }`, the run going now or the last one.
+
+## POST /api/apps/:slug/break
+
+Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes replaces it by itself, so Kairo does nothing. `{ "kind": "broken-release" }` deploys `kairo/broken-release:1`, an image that exits on start: it is recorded as a `TEST` release, `ACTIVE`, the old pod keeps serving, the new one crash-loops, and `KairoCrashLoop` makes Kairo roll back. 202:
+
+```json
+{ "kind": "broken-release", "releaseId": "…", "image": "kairo/broken-release:1" }
+```
+
+400 for another `kind`; 409 during a rollout or grace window, with no running release, or when the broken release already runs.
+
+## DELETE /api/apps/:slug
+
+Deletes the app (FR-65, Stitch 09). The body must name it: `{ "confirm": "kairo-node-sample" }`.
+
+Kairo deletes the app's namespace (its Deployment, Service, Ingress and pods go with it) and its key in the alert rules ConfigMap, stops its grace window, Send Traffic and healing, closes its open incidents (no recovery time), and sets `deletedAt`. Once the namespace is gone, it removes the app's images from the laptop. Releases, incidents and attempts are kept. GitHub is never touched: the repo, its PR, the files Kairo added, GHCR images and issues stay (FR-66). Adding the same repo again reuses the app, its slug and its history.
+
+```json
+{ "slug": "kairo-node-sample", "namespace": "kairo-kairo-node-sample", "namespaceState": "deleting", "closedIncidents": 0, "imagesToRemove": 4, "deletedAt": "…" }
+```
+
+| Status | When |
+| --- | --- |
+| `400` | `confirm` isn't the app's name |
+| `404` | Unknown or already deleted |
+| `409` | A pipeline run, a rollout or an action being checked (up to 90 s) is in progress |
+| `502` | The cluster refused; nothing is marked deleted, so it can be tried again |
 
 ## POST /api/apps/:slug/pr
 
@@ -255,6 +343,7 @@ The latest 50 Incidents, newest first.
   "appId": "cmwajzqex0003sazk5mt2kra8",
   "appName": "node-js-getting-started",
   "alertName": "KairoOOMKilled",
+  "pod": "node-js-getting-started-6d9f8c7b5-x2k4q",
   "cause": "Container went over its memory limit",
   "status": "RESOLVED",
   "explanation": null,
@@ -271,8 +360,13 @@ The latest 50 Incidents, newest first.
       "result": "SKIPPED",
       "fromReleaseId": null,
       "toReleaseId": null,
+      "fromSha": null,
+      "fromSource": null,
+      "toSha": null,
+      "toSource": null,
       "attemptedAt": "2026-11-10T10:48:33.120Z",
-      "verifiedAt": null
+      "verifiedAt": null,
+      "reason": "dry run"
     }
   ]
 }
@@ -281,11 +375,34 @@ The latest 50 Incidents, newest first.
 | Field | Values |
 | --- | --- |
 | `status` | `OPEN`, `RESOLVED` |
+| `pod` | The pod the alert named (its `pod` label), or `null` for an app-level alert (since P3) |
 | `recoverySeconds` | Seconds from start to resolve, one decimal; `null` while open |
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |
 | `attempts[].action` | `RESTART`, `ROLLBACK`, `SCALE_UP`, `SCALE_DOWN`, `NONE` |
 | `attempts[].trigger` | `AUTO`, `MANUAL` |
-| `attempts[].result` | `APPLIED`, `VERIFIED`, `UNVERIFIED`, `FAILED`, `SKIPPED` (dry run, no action for the alert, or not built yet) |
+| `attempts[].result` | `APPLIED` (ran, being checked), `VERIFIED` (took effect within 90 s), `UNVERIFIED` (didn't), `FAILED`, `SKIPPED` (dry run, no action for the alert, auto-heal off, given up, mid-rollout) |
+| `attempts[].fromReleaseId`, `toReleaseId` | For a rollback: the release rolled away from and the one rolled back to |
+| `attempts[].reason` | Why it was `SKIPPED` (e.g. "auto-heal is off", "gave up: 3 attempts in 10 minutes", "a rollout is in progress", "the alert resolved during the grace window, before its deferred action ran"), `UNVERIFIED` ("not confirmed within 90 s: 1 of 2 replicas ready") or `FAILED`; `null` otherwise and for attempts recorded before P3c |
+| `attempts[].fromSha`, `toSha`, `fromSource`, `toSource` | Those releases' commits and sources (since P3). Break It's `TEST` release has the commit of the release it replaced |
+
+## GET /api/incidents/:id
+
+One incident for the drawer (Stitch 08): the Incident above plus its app's memory around it. 404 for an unknown id.
+
+```json
+{
+  "…": "the Incident fields",
+  "memory": {
+    "startSec": 1762846200, "endSec": 1762846800, "stepSec": 15,
+    "limitBytes": 268435456,
+    "pod": "kairo-node-sample-76c4f85dc4-fxs5g",
+    "pods": [{ "pod": "kairo-node-sample-76c4f85dc4-fxs5g", "points": [[1762846215, 52428800]] }],
+    "error": null
+  }
+}
+```
+
+`pods` has each of the app's pods (up to 6, the incident's own `pod` first) from 5 minutes before the alert to 3 minutes after it resolved, or now while it is open, so a restarted pod's replacement shows too. `error` is set when Prometheus didn't answer; Prometheus keeps one day of data, so older incidents have no points.
 
 **Changed in P0:** removed `deploymentId` and `action`. Added `appId`, `explanation`, `githubIssueNumber` and `attempts`. `recoverySeconds` is now stored when the incident resolves instead of being worked out on every request.
 

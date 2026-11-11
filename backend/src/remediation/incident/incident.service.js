@@ -1,12 +1,12 @@
 import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
-import { inGrace } from '../../shipping/grace.service.js';
+import { inGrace, noteAlert } from '../../shipping/grace.service.js';
 import { isRolloutInProgress } from '../../state/rollout.state.js';
 import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
 import { decideAction } from '../action/decision.service.js';
-import { executeAction } from '../action/executor.service.js';
+import { heal } from '../healing/heal.service.js';
 import * as memory from './incident.state.js';
 
 const log = createLogger('incidents');
@@ -49,7 +49,11 @@ async function openIncident(alert) {
   }
 
   const { action, cause } = decideAction(alert.alertName, alert.summary);
-  const target = { ...alert, namespace: alert.namespace ?? app.namespace };
+  // what an action needs: the app and the pod the alert named
+  const target = { alertName: alert.alertName, pod: alert.pod ?? null };
+
+  // FR-72: an OOM kill or crash loop inside a grace window rules the release out
+  if (noteAlert(app.slug, alert.alertName)) log.info(`${alert.alertName} on ${app.slug} in its grace window: the release won't be marked healthy`);
 
   // FR-71: during the grace window after a rollout, record the alert and
   // defer its action; runDeferredActions() runs it if it still fires at the end
@@ -61,6 +65,7 @@ async function openIncident(alert) {
     appId: app.id,
     fingerprint: alert.fingerprint,
     alertName: alert.alertName,
+    pod: alert.pod,
     cause,
     startedAt: alert.startsAt,
     attempt: null,
@@ -74,16 +79,15 @@ async function openIncident(alert) {
     return 'opened';
   }
 
-  // 1. act
-  const attemptedAt = new Date();
-  const outcome = isRolloutInProgress(app.slug)
-    ? { result: 'SKIPPED', dryRun: env.remediationDryRun, note: 'app is mid-rollout' }
-    : await executeAction(action, target);
-  record.attempt = { action, trigger: 'AUTO', dryRun: outcome.dryRun, result: outcome.result, attemptedAt };
-  log.info(`${alert.alertName} on ${app.slug} -> ${action} ${outcome.result} (${outcome.note})`);
+  // 1. act (heal.service.js decides whether it may)
+  const { attempt, note, followUp } = await heal(app, action, target);
+  record.attempt = attempt;
+  log.info(`${alert.alertName} on ${app.slug} -> ${attempt.action} ${attempt.result} (${note})`);
 
-  // 2. record
-  const saved = await withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
+  // 2. record. The verification already runs; it gets the attempt's id once saved
+  const saving = withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
+  followUp(saving.then((saved) => (saved === FAILED ? null : saved.attempts[0]?.id ?? null)));
+  const saved = await saving;
   if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
   // else: the record stays in memory as pending, for the resolve or the flush
   return 'opened';
@@ -91,7 +95,8 @@ async function openIncident(alert) {
 
 // FR-71, at the end of an app's grace window (wired in src/index.js): every
 // alert that fired during it and is still open gets its normal action now.
-// One that resolved during the window stays recorded with no action.
+// One that resolved during the window gets a SKIPPED attempt saying so
+// (resolveIncident), and nothing is done in the cluster.
 export async function runDeferredActions(slug) {
   const fingerprints = memory.deferredFor(slug);
   for (const fingerprint of fingerprints) await runDeferred(fingerprint);
@@ -103,27 +108,44 @@ async function runDeferred(fingerprint) {
   // a new rollout started meanwhile: it waits for that one's window instead
   if (!entry?.deferred || isRolloutInProgress(entry.slug)) return;
   const { action, target } = memory.takeDeferred(fingerprint);
+  const app = await memory.findApp(entry.slug, null);
+  if (!app) return;
 
   // 1. act
-  const attemptedAt = new Date();
-  const outcome = await executeAction(action, target);
-  const attempt = { action, trigger: 'AUTO', dryRun: outcome.dryRun, result: outcome.result, attemptedAt };
-  log.info(`${target.alertName} on ${entry.slug} still firing after the grace window -> ${action} ${outcome.result} (${outcome.note})`);
+  const { attempt, note, followUp } = await heal(app, action, target);
+  log.info(`${target.alertName} on ${entry.slug} still firing after the grace window -> ${attempt.action} ${attempt.result} (${note})`);
 
   // 2. record
   if (entry.pending) {
     entry.pending.attempt = attempt; // saved with the incident, by the resolve or the flush
+    followUp(null);
     return;
   }
-  const saved = await withRetry(`record the deferred ${action} on ${entry.slug}`, () =>
+  const saving = withRetry(`record the deferred ${action} on ${entry.slug}`, () =>
     prisma.remediationAttempt.create({ data: { incidentId: entry.incidentId, ...attempt }, select: { id: true } }),
   );
-  if (saved === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
+  followUp(saving.then((saved) => (saved === FAILED ? null : saved.id)));
+  if ((await saving) === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
 }
+
+// the SKIPPED attempt of an alert that resolved while its action waited for
+// the grace window to end: what Kairo would have done, and why it didn't
+export const RESOLVED_IN_GRACE = 'the alert resolved during the grace window, before its deferred action ran';
 
 async function resolveIncident(alert) {
   const entry = memory.close(alert.fingerprint);
   const resolvedAt = alert.endsAt ?? new Date();
+  const skipped = entry?.deferred
+    ? {
+        action: entry.deferred.action,
+        trigger: 'AUTO',
+        dryRun: env.remediationDryRun,
+        result: 'SKIPPED',
+        attemptedAt: resolvedAt,
+        reason: RESOLVED_IN_GRACE,
+      }
+    : null;
+  if (skipped && entry.pending) entry.pending.attempt = skipped;
 
   const done = await withRetry(`resolve ${alert.alertName} on ${alert.appName}`, async () => {
     // the incident never reached the database: save it now, already resolved
@@ -144,7 +166,14 @@ async function resolveIncident(alert) {
     return 'resolved';
   }
   if (!entry && !done) return 'nothing-open';
-  log.info(`${alert.alertName} on ${alert.appName} resolved`);
+  // a recorded incident gets the skipped attempt as its own row
+  if (skipped && !entry.pending) {
+    const saved = await withRetry(`record the skipped action on ${alert.appName}`, () =>
+      prisma.remediationAttempt.create({ data: { incidentId: entry.incidentId, ...skipped }, select: { id: true } }),
+    );
+    if (saved === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt: skipped });
+  }
+  log.info(`${alert.alertName} on ${alert.appName} resolved${skipped ? ` (its deferred ${skipped.action} never ran)` : ''}`);
   return 'resolved';
 }
 
@@ -210,6 +239,7 @@ async function createIncident(record, resolvedAt = null) {
       appId,
       fingerprint: record.fingerprint,
       alertName: record.alertName,
+      pod: record.pod ?? null,
       cause: record.cause,
       startedAt: record.startedAt,
       ...(resolvedAt && {
@@ -219,7 +249,7 @@ async function createIncident(record, resolvedAt = null) {
       }),
       attempts: record.attempt ? { create: [record.attempt] } : undefined,
     },
-    select: { id: true },
+    select: { id: true, attempts: { select: { id: true } } },
   });
 }
 
@@ -242,17 +272,37 @@ export async function withRetry(what, write, delayMs = RETRY_DELAY_MS) {
 
 export const WRITE_FAILED = FAILED;
 
-export async function listIncidents(limit = 50) {
+// what an incident DTO needs: the app, and each attempt's releases
+const WITH_ATTEMPTS = {
+  app: true,
+  attempts: {
+    include: {
+      fromRelease: { select: { commitSha: true, source: true } },
+      toRelease: { select: { commitSha: true, source: true } },
+    },
+  },
+};
+
+export async function listIncidents(limit = 50, where = {}) {
   const rows = await prisma.incident.findMany({
+    where,
     orderBy: { startedAt: 'desc' },
     take: limit,
-    include: { app: true, attempts: true },
+    include: WITH_ATTEMPTS,
   });
   return rows.map(toIncidentDto);
 }
 
+// one incident row with its app and attempts, or null
+export function findIncident(id) {
+  return prisma.incident.findUnique({ where: { id }, include: WITH_ATTEMPTS });
+}
+
 // at boot (src/index.js)
 export const rebuildIncidentState = memory.rebuild;
+
+// FR-65, when an app is deleted
+export const forgetAppIncidents = memory.forgetApp;
 
 // for shipping/'s grace window, wired in src/index.js (FR-72)
 export const hasOpenIncident = memory.isAlerting;

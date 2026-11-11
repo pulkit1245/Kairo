@@ -15,14 +15,16 @@ export const KEEP_RELEASES = 3;
 
 /**
  * Which releases keep their image: the newest 3 that went live (FAILED ones
- * never ran, so they don't take a place), the ACTIVE one and the newest
- * healthy one. The last two are almost always among the 3 already.
+ * never ran and TEST ones are Break It's, so they don't take a place), the
+ * ACTIVE one and the newest healthy one. The last two are almost always among
+ * the 3 already.
  * @param {Array<{ id: string, status: string, healthyAt: Date | null, deployedAt: Date }>} releases
  * @returns {Set<string>} release ids
  */
 export function keptReleases(releases) {
   const newestFirst = [...releases].sort((a, b) => new Date(b.deployedAt) - new Date(a.deployedAt));
-  const live = newestFirst.filter((r) => r.status !== 'FAILED');
+  // FAILED releases never ran, and Break It's TEST release never should
+  const live = newestFirst.filter((r) => r.status !== 'FAILED' && r.source !== 'TEST');
   const keep = new Set(live.slice(0, KEEP_RELEASES).map((r) => r.id));
   const active = newestFirst.find((r) => r.status === 'ACTIVE');
   if (active) keep.add(active.id);
@@ -42,7 +44,9 @@ export function storedImages(releases) {
 // release uses the same image
 export function imagesToPrune(releases) {
   const stored = storedImages(releases);
-  return [...new Set(releases.map((r) => r.imageRef))].filter((ref) => !stored.has(ref));
+  // the broken-release image is shared by every app and rebuilt on demand: never pruned
+  const shared = new Set(releases.filter((r) => r.source === 'TEST').map((r) => r.imageRef));
+  return [...new Set(releases.map((r) => r.imageRef))].filter((ref) => !stored.has(ref) && !shared.has(ref));
 }
 
 // Runs after every new ACTIVE release (preview or GHCR). Never throws: a
@@ -51,7 +55,7 @@ export async function pruneImages(appId) {
   try {
     const app = await prisma.app.findUnique({
       where: { id: appId },
-      select: { slug: true, releases: { select: { id: true, imageRef: true, status: true, healthyAt: true, deployedAt: true } } },
+      select: { slug: true, releases: { select: { id: true, imageRef: true, source: true, status: true, healthyAt: true, deployedAt: true } } },
     });
     if (!app) return { removed: [] };
     const removed = [];

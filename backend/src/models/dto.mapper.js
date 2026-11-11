@@ -73,9 +73,11 @@ function prDto(app) {
 /**
  * The app page header and release list (P2c, Stitch 07).
  * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
- * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38) }
+ * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38),
+ *          attentionReason, traffic: Send Traffic's current or last run,
+ *          incidents: Incident DTOs }
  */
-export function toAppDto(row, { graceMs, storedImages }) {
+export function toAppDto(row, { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [] }) {
   const run = row.pipelineRuns?.[0] ?? null;
   const release = (r) => ({
     id: r.id,
@@ -100,6 +102,8 @@ export function toAppDto(row, { graceMs, storedImages }) {
     installed: Boolean(row.installationId),
     stack: row.stack,
     health: row.health,
+    // why it NEEDS_ATTENTION (null otherwise, or after a backend restart)
+    attentionReason,
     autoHeal: row.autoHeal,
     replicas: row.replicas,
     publicUrl: row.publicUrl,
@@ -111,6 +115,9 @@ export function toAppDto(row, { graceMs, storedImages }) {
     pr: prDto(row),
     // FR-35: Kairo rolls out new GHCR images once the setup PR is merged
     watchingGhcr: row.prState === 'MERGED',
+    traffic,
+    // the app's latest incidents, newest first (P3b), as GET /api/incidents
+    incidents,
   };
 }
 
@@ -124,6 +131,7 @@ export function toIncidentDto(row) {
     appId: row.appId,
     appName: row.app.slug,
     alertName: row.alertName,
+    pod: row.pod ?? null,
     cause: row.cause,
     status: row.status,
     explanation: row.explanation,
@@ -141,8 +149,16 @@ export function toIncidentDto(row) {
         result: a.result,
         fromReleaseId: a.fromReleaseId,
         toReleaseId: a.toReleaseId,
+        // the releases' commits and sources, for "rolled back from … to …" (P3).
+        // Break It's TEST release reuses the commit it replaced
+        fromSha: a.fromRelease?.commitSha ?? null,
+        fromSource: a.fromRelease?.source ?? null,
+        toSha: a.toRelease?.commitSha ?? null,
+        toSource: a.toRelease?.source ?? null,
         attemptedAt: a.attemptedAt.toISOString(),
         verifiedAt: iso(a.verifiedAt),
+        // why it was SKIPPED, UNVERIFIED or FAILED (P3)
+        reason: a.reason ?? null,
       })),
   };
 }

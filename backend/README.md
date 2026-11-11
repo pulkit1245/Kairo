@@ -63,13 +63,18 @@ Full shapes are in [`docs/api/README.md`](../docs/api/README.md).
 | GET | `/api/health` | API, database and cluster status |
 | GET | `/api/repos` | Repos your installations can see, for the picker |
 | POST | `/api/apps` | `{ "repoFullName": "owner/repo" }` → 202, onboarding from a picked repo |
-| GET | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR |
+| GET, PATCH, DELETE | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR, latest incidents. PATCH `{ "autoHeal": bool }`. DELETE `{ "confirm": "<slug>" }` removes it from the cluster, keeps its history |
+| GET | `/api/apps/:slug/metrics` | KPIs and the last 30 minutes from Prometheus (fixed queries) |
+| GET | `/api/apps/:slug/logs` | The newest pod's last 50 log lines |
+| POST | `/api/apps/:slug/traffic` | Send Traffic: 50 req/s for 60 s through Traefik |
+| POST | `/api/apps/:slug/break` | Break It: `{ "kind": "kill-pod" \| "broken-release" }` |
 | POST | `/api/apps/:slug/pr` | Try the setup PR again |
 | POST | `/api/deployments` | `{ "repoUrl": "https://github.com/owner/repo" }` → 202. Testing shortcut, hidden from the UI |
 | GET | `/api/deployments` | Latest 20 pipeline runs |
 | GET | `/api/deployments/:id` | One run with its generated files. Poll this while it runs |
 | POST | `/api/alerts` | Alertmanager webhook receiver |
 | GET | `/api/incidents` | Latest 50 incidents with their remediation attempts |
+| GET | `/api/incidents/:id` | One incident with its pods' memory around it (the drawer) |
 
 A run goes `CLONING → DETECTING → GENERATING → BUILDING → DEPLOYING → RUNNING`, or `FAILED` at any step:
 

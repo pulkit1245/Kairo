@@ -86,6 +86,13 @@ export function close(fingerprint) {
   return entry;
 }
 
+// a deleted app (FR-65): its open alerts are dropped, and a later alert for
+// it finds no app and is ignored (PRD section 8)
+export function forgetApp(slug) {
+  apps.delete(slug);
+  for (const [fingerprint, e] of open) if (e.slug === slug) open.delete(fingerprint);
+}
+
 export function rememberApp(app) {
   apps.set(app.slug, { id: app.id, slug: app.slug, namespace: app.namespace });
 }
@@ -127,6 +134,7 @@ export async function rebuild() {
         fingerprint: true,
         alertName: true,
         cause: true,
+        pod: true,
         app: { select: { slug: true, namespace: true } },
         _count: { select: { attempts: true } },
       },
@@ -140,7 +148,7 @@ export async function rebuild() {
       ? null
       : {
           action: decideAction(i.alertName, i.cause).action,
-          target: { alertName: i.alertName, appName: i.app.slug, namespace: i.app.namespace, pod: null, summary: i.cause },
+          target: { alertName: i.alertName, pod: i.pod ?? null },
         };
     open.set(i.fingerprint, { incidentId: i.id, pending: null, slug: i.app.slug, deferred });
   }

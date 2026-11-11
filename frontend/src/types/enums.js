@@ -37,7 +37,7 @@ export const FILE_KINDS = Object.freeze([
 
 export const FILE_ORIGINS = Object.freeze(['GENERATED', 'KEPT_EXISTING']);
 
-export const RELEASE_SOURCES = Object.freeze(['PREVIEW', 'GHCR']);
+export const RELEASE_SOURCES = Object.freeze(['PREVIEW', 'GHCR', 'TEST']);
 
 export const RELEASE_STATUSES = Object.freeze(['ACTIVE', 'SUPERSEDED', 'ROLLED_BACK', 'FAILED']);
 
@@ -57,10 +57,14 @@ export const ALERT_NAMES = Object.freeze([
   'KairoHighLatency',
 ]);
 
+// FR-72: firing inside a grace window keeps the release from being marked healthy
+export const HEALTH_BLOCKING_ALERTS = Object.freeze(['KairoOOMKilled', 'KairoCrashLoop']);
+
 export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);
 
+// SKIPPED, UNVERIFIED and FAILED attempts carry a `reason` saying why (P3)
 export const ATTEMPT_RESULTS = Object.freeze([
   'APPLIED',
   'VERIFIED',

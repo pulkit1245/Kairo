@@ -24,23 +24,4 @@ export function runStatus(run) {
   return { label: `${title(run.status)} done`, icon: 'task_alt', tone: 'ok' };
 }
 
-export function incidentStatus(status) {
-  return status === 'OPEN'
-    ? { label: 'Open', icon: 'warning', tone: 'warn' }
-    : { label: 'Resolved', icon: 'check_circle', tone: 'ok' };
-}
-
-const RESULT = {
-  APPLIED: { icon: 'bolt', tone: 'busy' },
-  VERIFIED: { icon: 'verified', tone: 'ok' },
-  UNVERIFIED: { icon: 'help', tone: 'bad' },
-  FAILED: { icon: 'error', tone: 'bad' },
-  SKIPPED: { icon: 'skip_next', tone: 'muted' },
-};
-
-export function attemptResult(result) {
-  return { label: title(result), ...(RESULT[result] ?? { icon: 'help', tone: 'muted' }) };
-}
-
-export const actionLabel = (action) => title(action);
 export const stackLabel = (stack) => (stack === 'NODE' ? 'Node.js' : stack === 'PYTHON' ? 'Python' : '—');

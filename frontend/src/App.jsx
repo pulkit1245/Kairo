@@ -5,7 +5,6 @@ import { AddRepoPage } from './pages/AddRepoPage.jsx';
 import { AppPage } from './pages/AppPage.jsx';
 import { DeploymentPage } from './pages/DeploymentPage.jsx';
 import { DeploymentsPage } from './pages/DeploymentsPage.jsx';
-import { IncidentsPage } from './pages/IncidentsPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { NotInvitedPage } from './pages/NotInvitedPage.jsx';
 import { SignInPage } from './pages/SignInPage.jsx';
@@ -26,7 +25,6 @@ const router = createBrowserRouter([
       { path: '/apps/new', element: <AddRepoPage /> },
       { path: '/apps/:slug', element: <AppPage /> },
       { path: '/deployments/:id', element: <DeploymentPage /> },
-      { path: '/incidents', element: <IncidentsPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

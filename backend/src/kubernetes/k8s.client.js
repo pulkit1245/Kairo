@@ -104,6 +104,27 @@ export async function ensureNamespace(name, labels = {}) {
   }
 }
 
+// FR-65: deleting the namespace removes everything in it (Deployment,
+// Service, Ingress, pods). Kubernetes finishes it in the background; already
+// gone is fine. Returns 'deleting' or 'gone'.
+export async function deleteNamespace(name) {
+  try {
+    await call((c) => c.makeApiClient(k8s.CoreV1Api).deleteNamespace({ name }));
+    return 'deleting';
+  } catch (err) {
+    if (isNotFound(err)) return 'gone';
+    throw err;
+  }
+}
+
+// How many pods are left in a namespace; 0 once it is gone. FR-68 lets
+// kairo-platform list pods but not read namespaces, so this is how Kairo
+// knows a deleted app's containers have stopped
+export async function podCount(namespace) {
+  const pods = await call((c) => c.makeApiClient(k8s.CoreV1Api).listNamespacedPod({ namespace }));
+  return pods.items.length;
+}
+
 // Server-side apply: creates each object or updates it to match, and records
 // Kairo as the owner of the fields it set. Same call for first deploy and redeploy.
 export async function applyObjects(objects) {
@@ -215,6 +236,112 @@ export async function setImage(namespace, name, image) {
   );
 }
 
+// The image and replica count the Deployment asks for right now
+/** @returns {Promise<{ image: string | null, replicas: number }>} */
+export async function deploymentSpec(namespace, name) {
+  const d = await call((c) => c.makeApiClient(k8s.AppsV1Api).readNamespacedDeployment({ name, namespace }));
+  return {
+    image: d.spec?.template?.spec?.containers?.find((c) => c.name === name)?.image ?? null,
+    replicas: d.spec?.replicas ?? 1,
+  };
+}
+
+// Scaling (FR-46, FR-47): only spec.replicas changes, with its own field
+// manager, like setImage. A later Deploy again sets it back to 1
+export async function scaleDeployment(namespace, name, replicas) {
+  await call((c) =>
+    k8s.KubernetesObjectApi.makeApiClient(c).patch(
+      { apiVersion: 'apps/v1', kind: 'Deployment', metadata: { name, namespace }, spec: { replicas } },
+      undefined,
+      undefined,
+      'kairo-heal',
+      undefined,
+      k8s.PatchStrategy.StrategicMergePatch,
+    ),
+  );
+}
+
+// The app's pods, newest first, without those already being deleted:
+// [{ name, ready, image }]
+async function appPods(namespace, app) {
+  const pods = await call((c) =>
+    c.makeApiClient(k8s.CoreV1Api).listNamespacedPod({ namespace, labelSelector: `app=${app}` }),
+  );
+  return pods.items
+    .filter((p) => !p.metadata?.deletionTimestamp)
+    .sort((a, b) => new Date(b.metadata.creationTimestamp) - new Date(a.metadata.creationTimestamp))
+    .map((p) => ({
+      name: p.metadata.name,
+      ready: p.status?.conditions?.some((c) => c.type === 'Ready' && c.status === 'True') ?? false,
+      image: p.spec?.containers?.find((c) => c.name === app)?.image ?? null,
+    }));
+}
+
+export async function listAppPods(namespace, app) {
+  return (await appPods(namespace, app)).map((p) => p.name);
+}
+
+/**
+ * FR-58: the newest pod's last `lines` log lines, with Kubernetes' timestamps.
+ * A container waiting to restart (crash loop) has no current log, so its last
+ * run's log is shown instead. null when the app has no pod.
+ * @returns {Promise<{ pod: string, previous: boolean, text: string } | null>}
+ */
+export async function newestPodLog(namespace, app, lines = 50) {
+  const [newest] = await appPods(namespace, app);
+  if (!newest) return null;
+  const read = (previous) =>
+    call((c) =>
+      c.makeApiClient(k8s.CoreV1Api).readNamespacedPodLog({
+        name: newest.name,
+        namespace,
+        container: app,
+        tailLines: lines,
+        timestamps: true,
+        previous,
+      }),
+    );
+  try {
+    return { pod: newest.name, previous: false, text: (await read(false)) ?? '' };
+  } catch (err) {
+    // 400: "container ... is waiting to start" (no current run to read)
+    if (!(err instanceof k8s.ApiException) || err.code !== 400) throw err;
+    return { pod: newest.name, previous: true, text: (await read(true).catch(() => '')) ?? '' };
+  }
+}
+
+/**
+ * FR-73: did an action take effect? Every desired replica is up to date and
+ * ready, and, when given: the Deployment runs `image`, asks for `replicas`,
+ * and pod `gone` no longer exists (a restart).
+ * @returns {Promise<{ done: boolean, detail?: string }>}
+ */
+export async function actionTookEffect(namespace, name, { image, replicas, gone } = {}) {
+  const d = await call((c) => c.makeApiClient(k8s.AppsV1Api).readNamespacedDeployment({ name, namespace }));
+  const want = d.spec?.replicas ?? 1;
+  const s = d.status ?? {};
+  const running = d.spec?.template?.spec?.containers?.find((c) => c.name === name)?.image;
+  if (image && running !== image) return { done: false, detail: `the Deployment runs ${running ?? 'nothing'}, not ${image}` };
+  if (replicas !== undefined && want !== replicas) return { done: false, detail: `the Deployment asks for ${want} replicas, not ${replicas}` };
+  if ((s.observedGeneration ?? 0) < (d.metadata?.generation ?? 1)) return { done: false, detail: 'the change is not picked up yet' };
+  const ready = (s.readyReplicas ?? 0) === want && (s.updatedReplicas ?? 0) === want && (s.replicas ?? 0) === want;
+  if (!ready) {
+    // a pod's own reason (CrashLoopBackOff...) says more than a count; a plain
+    // "not ready" says less (e.g. a replica that couldn't even be created)
+    const trouble = await podTrouble(namespace, name);
+    const count = `${s.readyReplicas ?? 0} of ${want} replicas ready`;
+    return { done: false, detail: trouble && trouble !== 'not ready' && trouble !== 'no pods' ? `${trouble}, ${count}` : count };
+  }
+  // the Deployment's own counts lag behind: right after a pod is deleted they
+  // still count it as ready. So the pods themselves must show it: enough
+  // Ready pods on the intended image, none of them the deleted one
+  const pods = await appPods(namespace, name);
+  if (gone && pods.some((p) => p.name === gone)) return { done: false, detail: `pod ${gone} is still there` };
+  const readyPods = pods.filter((p) => p.ready && p.name !== gone && (!image || p.image === image)).length;
+  if (readyPods < want) return { done: false, detail: `${readyPods} of ${want} pods ready` };
+  return { done: true };
+}
+
 // Each app's alert rules are one key in monitoring/kairo-alert-rules (AQ6).
 // A merge patch only touches this app's key.
 export const ALERT_RULES_CONFIGMAP = { namespace: 'monitoring', name: 'kairo-alert-rules' };
@@ -227,6 +354,25 @@ export async function putAlertRules(slug, content) {
         kind: 'ConfigMap',
         metadata: { ...ALERT_RULES_CONFIGMAP },
         data: { [`${slug}.rules.yml`]: content },
+      },
+      undefined,
+      undefined,
+      'kairo',
+      undefined,
+      k8s.PatchStrategy.MergePatch,
+    ),
+  );
+}
+
+// FR-65: a merge patch with null removes just this app's key
+export async function deleteAlertRules(slug) {
+  await call((c) =>
+    k8s.KubernetesObjectApi.makeApiClient(c).patch(
+      {
+        apiVersion: 'v1',
+        kind: 'ConfigMap',
+        metadata: { ...ALERT_RULES_CONFIGMAP },
+        data: { [`${slug}.rules.yml`]: null },
       },
       undefined,
       undefined,

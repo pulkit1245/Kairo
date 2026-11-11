@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { Icon } from '../components/common/Icon.jsx';
 import { DeploymentTable } from '../components/onboarding/DeploymentTable.jsx';
 import { PageHeader } from '../components/common/PageHeader.jsx';
@@ -13,6 +13,8 @@ const POLL_MS = 5_000;
 
 export function DeploymentsPage() {
   const { data, error, loading } = usePoll(listDeployments, POLL_MS);
+  // set by the delete dialog (FR-65)
+  const deleted = useLocation().state?.deleted;
   const running = data?.filter((d) => !d.finishedAt && IN_PROGRESS_STATUSES.includes(d.status)).length ?? 0;
 
   return (
@@ -28,6 +30,12 @@ export function DeploymentsPage() {
           )
         }
       />
+      {deleted && (
+        <p role="status" className="mb-4 flex items-center gap-2 rounded border border-tertiary/30 bg-tertiary/10 px-4 py-2 text-body-md">
+          <Icon name="check_circle" className="text-[18px] text-tertiary" />
+          Deleted {deleted}. Its namespace is being removed; its history and GitHub repo stay.
+        </p>
+      )}
       <div className="mb-6">
         <Link
           to="/apps/new"

@@ -1,5 +1,8 @@
 import { retrySetupPr } from '../generator/pr/pr.service.js';
-import { getApp } from '../services/app.service.js';
+import { deleteApp, getApp, sendTraffic, updateApp } from '../services/app.service.js';
+import { appLogs } from '../services/logs.service.js';
+import { appMetrics } from '../services/metrics.service.js';
+import { breakApp } from '../testpanel/break.service.js';
 import { onboardRepo } from '../services/deployment.service.js';
 import { listRepos } from '../services/repo.service.js';
 
@@ -23,4 +26,34 @@ export async function retryPr(req, res) {
 // GET /api/apps/:slug: the app page (Stitch 07 header)
 export async function show(req, res) {
   res.json(await getApp(req.params.slug));
+}
+
+// PATCH /api/apps/:slug { autoHeal } (FR-51)
+export async function update(req, res) {
+  res.json(await updateApp(req.params.slug, req.body));
+}
+
+// POST /api/apps/:slug/traffic: Send Traffic (FR-62), 202 while it runs
+export async function traffic(req, res) {
+  res.status(202).json(await sendTraffic(req.params.slug));
+}
+
+// POST /api/apps/:slug/break { kind: "kill-pod" | "broken-release" } (FR-63)
+export async function breakIt(req, res) {
+  res.status(202).json(await breakApp(req.params.slug, req.body?.kind));
+}
+
+// GET /api/apps/:slug/metrics: KPIs and the last 30 min (FR-56, FR-57)
+export async function metrics(req, res) {
+  res.json(await appMetrics(req.params.slug));
+}
+
+// GET /api/apps/:slug/logs: the newest pod's last 50 lines (FR-58)
+export async function logs(req, res) {
+  res.json(await appLogs(req.params.slug));
+}
+
+// DELETE /api/apps/:slug { confirm: "<slug>" } (FR-65, FR-66)
+export async function remove(req, res) {
+  res.json(await deleteApp(req.params.slug, req.body?.confirm));
 }

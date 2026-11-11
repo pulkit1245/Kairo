@@ -22,3 +22,22 @@ export const repoName = (url) => url.replace(/^https:\/\/github\.com\//, '').rep
 
 export const shortTime = (iso) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// clock times in UTC, as on the Stitch screens: "14:20" or "14:20:12"
+export function utcClock(msOrIso, seconds = false) {
+  const d = new Date(msOrIso);
+  const pad = (n) => String(n).padStart(2, '0');
+  const hm = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+  return seconds ? `${hm}:${pad(d.getUTCSeconds())}` : hm;
+}
+
+// "14:20:12 UTC", or "Yesterday 18:32:00 UTC", or "10 Nov 18:32:00 UTC"
+export function utcStamp(iso, now = Date.now()) {
+  const d = new Date(iso);
+  const day = (t) => Math.floor(t / 86_400_000);
+  const diff = day(now) - day(d.getTime());
+  const prefix =
+    diff === 0 ? '' : diff === 1 ? 'Yesterday ' : `${d.getUTCDate()} ${d.toLocaleString('en', { month: 'short', timeZone: 'UTC' })} `;
+  return `${prefix}${utcClock(d, true)} UTC`;
+}
+

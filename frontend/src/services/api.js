@@ -60,6 +60,27 @@ export const onboardRepo = (repoFullName) => postJson('/apps', { repoFullName })
 export const getApp = (slug) => request(`/apps/${encodeURIComponent(slug)}`);
 export const retryPr = (slug) => postJson(`/apps/${encodeURIComponent(slug)}/pr`);
 
+// the live app page (P3b, FR-56 to FR-63)
+const app = (slug) => `/apps/${encodeURIComponent(slug)}`;
+export const getAppMetrics = (slug) => request(`${app(slug)}/metrics`);
+export const getAppLogs = (slug) => request(`${app(slug)}/logs`);
+export const setAutoHeal = (slug, autoHeal) =>
+  request(app(slug), {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ autoHeal }),
+  });
+export const sendTraffic = (slug) => postJson(`${app(slug)}/traffic`);
+/** @param {'kill-pod' | 'broken-release'} kind */
+export const breakApp = (slug, kind) => postJson(`${app(slug)}/break`, { kind });
+// FR-65: `confirm` must be the app's name
+export const deleteApp = (slug, confirm) =>
+  request(app(slug), {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ confirm }),
+  });
+
 /** @returns {Promise<{ ok: boolean, db: 'up'|'down', cluster: 'up'|'down' }>} */
 export const getHealth = () => request('/health');
 
@@ -70,4 +91,5 @@ export const listDeployments = () => request('/deployments');
 export const createDeployment = (repoUrl) => postJson('/deployments', { repoUrl });
 export const getDeployment = (id) => request(`/deployments/${encodeURIComponent(id)}`);
 
-export const listIncidents = () => request('/incidents');
+// one incident with its pods' memory around it (the drawer, Stitch 08)
+export const getIncident = (id) => request(`/incidents/${encodeURIComponent(id)}`);
