@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { relativeTime, shortSha } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
+import { incidentKind } from '../app/incident.text.js';
 import { HEALTH, stackLabel, TONE_CLASS } from '../common/status.js';
 
 // One app on the Apps list (Stitch 06): name, stack and public link; pipeline,
@@ -138,9 +139,11 @@ function PublicLink({ app, live }) {
         href={app.publicUrl}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex min-w-0 items-center gap-1 break-all font-mono text-code-md text-primary hover:underline"
+        title={app.publicUrl}
+        className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-code-md text-primary hover:underline"
       >
-        {app.publicUrl} <Icon name="open_in_new" className="shrink-0 text-[14px]" />
+        {/* one line: a long tunnel name ends in … instead of wrapping mid-word */}
+        <span className="min-w-0 truncate">{app.publicUrl}</span> <Icon name="open_in_new" className="shrink-0 text-[14px]" />
       </a>
     );
   }
@@ -154,17 +157,22 @@ function PublicLink({ app, live }) {
   return <span className="font-mono text-code-sm text-on-surface-variant">{text}</span>;
 }
 
+// names the kind: "crash loop, 2 min ago (recovered in 9.5 s)", "manual
+// rollback, 26 min ago", "crash loop, open"
 function LastIncident({ incident, now }) {
   if (!incident) return <span className="ml-auto text-on-surface-variant">No incidents</span>;
   const open = incident.status === 'OPEN';
+  const kind = incidentKind(incident);
   return (
     <span className="ml-auto flex items-center gap-2">
       <span className="text-on-surface-variant">Last incident:</span>
       {open ? (
-        <span className="text-warning">{incident.cause}</span>
+        <span className="text-warning" title={incident.cause}>
+          {kind}, open
+        </span>
       ) : (
-        <span className="text-on-surface">
-          {relativeTime(incident.startedAt, now)}
+        <span className="text-on-surface" title={incident.cause}>
+          {kind}, {relativeTime(incident.startedAt, now)}
           {incident.recoverySeconds !== null && ` (recovered in ${incident.recoverySeconds} s)`}
         </span>
       )}

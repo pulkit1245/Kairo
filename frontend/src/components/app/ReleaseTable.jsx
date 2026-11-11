@@ -65,7 +65,8 @@ export function ReleaseTable({ slug, releases, now, onRolledBack }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto">
+      {/* contain: paint keeps the wide table from widening a phone's page; it scrolls in here */}
+      <div className="overflow-x-auto [contain:paint]">
         <table className="w-full min-w-[900px] border-collapse">
           <thead className="border-b border-outline-variant">
             <tr>

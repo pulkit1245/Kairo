@@ -1,21 +1,20 @@
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useOutletContext } from 'react-router';
 import { AppCard } from '../components/apps/AppCard.jsx';
 import { Icon } from '../components/common/Icon.jsx';
 import { PanelMessage } from '../components/common/Panel.jsx';
-import { usePoll } from '../hooks/usePoll.js';
-import { listApps } from '../services/api.js';
 
 // The home page (Stitch 06): one card per live app. Deleted apps are hidden
 // (FR-65); an app whose onboarding failed stays, with the step it stopped at,
-// so its run can still be opened. Refreshes every 5 s, like the app page.
-const POLL_MS = 5000;
-
+// so its run can still be opened. Refreshes every 5 s, like the app page: the
+// Layout polls GET /api/apps and shares it with the sidebar.
 export function AppsPage() {
-  const { data, error, loading } = usePoll(listApps, POLL_MS);
+  const { data, error, loading } = useOutletContext();
   // set by the delete dialog (FR-65)
   const deleted = useLocation().state?.deleted;
   const now = Date.now();
-  const count = data && `${data.running} of ${data.maxRunning} running`;
+  // apps against the limit (FR-9), not how many are up: "2 of 3 apps"
+  const count = data && `${data.running} of ${data.maxRunning} apps`;
+  const free = data && data.maxRunning - data.running;
 
   return (
     <>
@@ -62,7 +61,8 @@ export function AppsPage() {
       )}
       {data?.apps.length > 0 && (
         <p className="mt-6 border-t border-outline-variant pt-4 text-body-md text-on-surface-variant">
-          {count} apps{error && ` · last refresh failed: ${error.message}`}
+          {count} · {free > 0 ? `${free} slot${free === 1 ? '' : 's'} free` : 'no slot free'}
+          {error && ` · last refresh failed: ${error.message}`}
         </p>
       )}
     </>

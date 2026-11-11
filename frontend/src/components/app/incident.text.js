@@ -22,6 +22,14 @@ const DONE = {
   SCALE_DOWN: 'scaled down',
 };
 
+// what kind of incident, in a few lower-case words, for the Apps list's
+// "Last incident: crash loop, 2 min ago"
+export function incidentKind(incident) {
+  if (isManual(incident)) return 'manual rollback';
+  const title = ALERT_TITLE[incident.alertName];
+  return title ? title.toLowerCase() : incident.alertName;
+}
+
 // the first action that ran decides the title, e.g. "Crash loop, rolled back"
 export function incidentTitle(incident) {
   if (isManual(incident)) {

@@ -1,43 +1,23 @@
 import { NavLink, Outlet } from 'react-router';
-import { logout } from '../../services/api.js';
+import { usePoll } from '../../hooks/usePoll.js';
+import { listApps, logout } from '../../services/api.js';
 import { useAuth } from '../auth/auth.jsx';
 import { HealthPills } from '../operations/HealthPills.jsx';
-import { Icon } from './Icon.jsx';
+import { Sidebar } from './Sidebar.jsx';
 
-// Sidebar + top bar from the Stitch screens. The sidebar has only Apps: each
-// app's page shows its own incidents (P3).
-const NAV = [{ to: '/', label: 'Apps', icon: 'apps', end: true }];
+// Sidebar + top bar. The sidebar lists only real things (Sidebar.jsx); on a
+// phone it is hidden and Apps moves into the top bar.
+const NAV = [{ to: '/', label: 'Apps', end: true }];
+
+// GET /api/apps is polled once here, every 5 s, for the sidebar and the Apps
+// page (through the Outlet's context), so its Prometheus numbers aren't read twice
+const POLL_MS = 5000;
 
 export function Layout() {
+  const apps = usePoll(listApps, POLL_MS);
   return (
     <div className="flex min-h-full">
-      <aside className="hidden w-56 shrink-0 border-r border-outline-variant bg-surface-container-low md:block">
-        <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="grid size-8 place-items-center rounded bg-primary-container text-on-primary-container">
-            <Icon name="deployed_code" className="text-[20px]" />
-          </span>
-          <span className="text-headline-md font-semibold">Kairo</span>
-        </div>
-        <nav className="flex flex-col gap-1 px-2" aria-label="Main">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded px-3 py-2 text-body-lg ${
-                  isActive
-                    ? 'border-l-2 border-primary bg-surface-container-high text-primary'
-                    : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
-                }`
-              }
-            >
-              <Icon name={item.icon} className="text-[18px]" />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+      <Sidebar apps={apps} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-4 border-b border-outline-variant px-4 py-3 md:px-6">
@@ -55,7 +35,7 @@ export function Layout() {
           </div>
         </header>
         <main className="flex-1 px-4 py-6 md:px-6">
-          <Outlet />
+          <Outlet context={apps} />
         </main>
       </div>
     </div>

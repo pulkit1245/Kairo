@@ -31,7 +31,7 @@ export function TestPanel({ app, now }) {
   }
 
   return (
-    <section className="flex flex-col gap-3 rounded border-2 border-dashed border-error/40 px-4 py-4" aria-labelledby="test-panel-title">
+    <section id="test-panel" className="flex scroll-mt-4 flex-col gap-3 rounded border-2 border-dashed border-error/40 px-4 py-4" aria-labelledby="test-panel-title">
       <div className="flex flex-wrap items-center gap-3">
         <span className="inline-flex items-center gap-1.5 rounded border border-error/40 bg-error-container/20 px-2 py-0.5 font-mono text-code-sm uppercase tracking-wider text-error">
           <Icon name="warning" className="text-[14px]" /> Test scenarios
