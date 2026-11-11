@@ -38,6 +38,8 @@ export async function listApps() {
       });
     }),
   );
+  // running apps first, then the ones whose onboarding didn't finish; oldest first in each
+  apps.sort((a, b) => Boolean(b.release) - Boolean(a.release));
   return { apps, running: apps.filter((a) => a.release).length, maxRunning: MAX_RUNNING_APPS };
 }
 
