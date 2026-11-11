@@ -50,6 +50,7 @@ describe('the healing gate (FR-48, FR-51, FR-73)', () => {
     state.setAutoHealState('demo', false);
     const { attempt, note } = await heal(app, 'RESTART', { pod: 'p' });
     assert.deepEqual([attempt.action, attempt.result, note], ['RESTART', 'SKIPPED', 'auto-heal is off']);
+    assert.equal(attempt.reason, 'auto-heal is off', 'stored, for the drawer');
     assert.equal(state.getHealth('demo'), 'NEEDS_ATTENTION');
     assert.equal(state.attentionReason('demo'), 'an alert fired with auto-heal off');
     assert.equal(state.recentAttempts('demo'), 0, 'a skipped attempt never counts');
@@ -60,6 +61,7 @@ describe('the healing gate (FR-48, FR-51, FR-73)', () => {
     const { attempt, note } = await heal(app, 'RESTART', { pod: 'p' });
     assert.equal(attempt.result, 'SKIPPED');
     assert.match(note, /gave up/);
+    assert.equal(attempt.reason, 'gave up: 3 attempts in 10 minutes');
     assert.equal(state.getHealth('demo'), 'NEEDS_ATTENTION');
   });
 
@@ -84,7 +86,7 @@ describe('the healing gate (FR-48, FR-51, FR-73)', () => {
 
   it('skips while the app rolls out or another action is checked', async () => {
     beginRollout('demo');
-    assert.match((await heal(app, 'RESTART', { pod: 'p' })).note, /mid-rollout/);
+    assert.match((await heal(app, 'RESTART', { pod: 'p' })).note, /rollout is in progress/);
     endRollout('demo');
     state.claimAction('demo', 'SCALE_UP');
     assert.match((await heal(app, 'RESTART', { pod: 'p' })).note, /being verified/);
@@ -137,7 +139,7 @@ describe('verification (FR-73)', () => {
     assert.deepEqual(res, { result: 'UNVERIFIED', detail: 'CrashLoopBackOff' });
     assert.equal(state.getHealth('demo'), 'NEEDS_ATTENTION');
     assert.match(state.attentionReason('demo'), /rollback wasn't confirmed within 0 s \(CrashLoopBackOff\)/);
-    assert.deepEqual(updates[0].data, { result: 'UNVERIFIED', verifiedAt: null });
+    assert.deepEqual(updates[0].data, { result: 'UNVERIFIED', verifiedAt: null, reason: 'not confirmed within 0 s: CrashLoopBackOff' });
   });
 
   it('a restart with no rollback target needs attention even when it works (FR-50)', async () => {

@@ -1,3 +1,4 @@
+import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
 import { inGrace, noteAlert } from '../../shipping/grace.service.js';
@@ -94,7 +95,8 @@ async function openIncident(alert) {
 
 // FR-71, at the end of an app's grace window (wired in src/index.js): every
 // alert that fired during it and is still open gets its normal action now.
-// One that resolved during the window stays recorded with no action.
+// One that resolved during the window gets a SKIPPED attempt saying so
+// (resolveIncident), and nothing is done in the cluster.
 export async function runDeferredActions(slug) {
   const fingerprints = memory.deferredFor(slug);
   for (const fingerprint of fingerprints) await runDeferred(fingerprint);
@@ -126,9 +128,24 @@ async function runDeferred(fingerprint) {
   if ((await saving) === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
 }
 
+// the SKIPPED attempt of an alert that resolved while its action waited for
+// the grace window to end: what Kairo would have done, and why it didn't
+export const RESOLVED_IN_GRACE = 'the alert resolved during the grace window, before its deferred action ran';
+
 async function resolveIncident(alert) {
   const entry = memory.close(alert.fingerprint);
   const resolvedAt = alert.endsAt ?? new Date();
+  const skipped = entry?.deferred
+    ? {
+        action: entry.deferred.action,
+        trigger: 'AUTO',
+        dryRun: env.remediationDryRun,
+        result: 'SKIPPED',
+        attemptedAt: resolvedAt,
+        reason: RESOLVED_IN_GRACE,
+      }
+    : null;
+  if (skipped && entry.pending) entry.pending.attempt = skipped;
 
   const done = await withRetry(`resolve ${alert.alertName} on ${alert.appName}`, async () => {
     // the incident never reached the database: save it now, already resolved
@@ -149,7 +166,14 @@ async function resolveIncident(alert) {
     return 'resolved';
   }
   if (!entry && !done) return 'nothing-open';
-  log.info(`${alert.alertName} on ${alert.appName} resolved`);
+  // a recorded incident gets the skipped attempt as its own row
+  if (skipped && !entry.pending) {
+    const saved = await withRetry(`record the skipped action on ${alert.appName}`, () =>
+      prisma.remediationAttempt.create({ data: { incidentId: entry.incidentId, ...skipped }, select: { id: true } }),
+    );
+    if (saved === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt: skipped });
+  }
+  log.info(`${alert.alertName} on ${alert.appName} resolved${skipped ? ` (its deferred ${skipped.action} never ran)` : ''}`);
   return 'resolved';
 }
 

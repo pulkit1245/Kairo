@@ -29,7 +29,10 @@ export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);
 // VERIFIED   the check afterwards passed (FR-73, P3)
 // UNVERIFIED the check timed out, app goes to NEEDS_ATTENTION
 // FAILED     the action itself errored
-// SKIPPED    nothing was done: dry run, no action for this alert, or not built yet
+// SKIPPED    nothing was done: dry run, no action for this alert, auto-heal
+//            off, given up, a rollout or another action in progress, or the
+//            alert resolved during a grace window before its deferred action
+// SKIPPED, UNVERIFIED and FAILED attempts carry a `reason` saying why (P3)
 export const ATTEMPT_RESULTS = Object.freeze([
   'APPLIED',
   'VERIFIED',
@@ -50,6 +53,7 @@ export const ATTEMPT_RESULTS = Object.freeze([
  * @property {string | null} toReleaseId
  * @property {string} attemptedAt           ISO date
  * @property {string | null} verifiedAt     ISO date
+ * @property {string | null} reason         why it was SKIPPED, UNVERIFIED or FAILED (P3)
  */
 
 /**

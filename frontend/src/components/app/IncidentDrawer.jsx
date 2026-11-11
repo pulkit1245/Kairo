@@ -247,7 +247,7 @@ function events(i) {
       list.push({
         t: new Date(Date.parse(a.attemptedAt) + 90_000).toISOString(),
         title: 'Unverified',
-        text: "Not confirmed within 90 s, so Kairo stopped acting on the app and it needs attention.",
+        text: `${a.reason ? `${a.reason.charAt(0).toUpperCase()}${a.reason.slice(1)}. ` : ''}Kairo stopped acting on the app and it needs attention.`,
         icon: 'help',
         tone: 'bad',
       });
@@ -307,11 +307,12 @@ function Attempts({ incident }) {
         <p className="text-body-md text-on-surface-variant">None recorded yet.</p>
       ) : (
         <div className="overflow-x-auto rounded border border-outline-variant">
-          <table className="w-full border-collapse">
+          <table className="w-full min-w-[520px] border-collapse">
             <thead className="border-b border-outline-variant bg-surface-container">
               <tr>
                 <th className={th}>Action</th>
                 <th className={th}>Result</th>
+                <th className={th}>Reason</th>
                 <th className={`${th} text-right`}>Time</th>
               </tr>
             </thead>
@@ -325,6 +326,7 @@ function Attempts({ incident }) {
                   <td className="px-3 py-2">
                     <StatusBadge status={attemptBadge(a)} />
                   </td>
+                  <td className="px-3 py-2 text-body-md text-on-surface-variant">{a.reason ?? '—'}</td>
                   <td className="px-3 py-2 text-right font-mono text-code-md">
                     {utcClock(a.attemptedAt, true)} UTC
                     {a.verifiedAt && <span className="text-tertiary"> ({duration(a.attemptedAt, a.verifiedAt)})</span>}

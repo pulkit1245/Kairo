@@ -157,6 +157,8 @@ export function toIncidentDto(row) {
         toSource: a.toRelease?.source ?? null,
         attemptedAt: a.attemptedAt.toISOString(),
         verifiedAt: iso(a.verifiedAt),
+        // why it was SKIPPED, UNVERIFIED or FAILED (P3)
+        reason: a.reason ?? null,
       })),
   };
 }

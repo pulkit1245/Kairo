@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { prisma } from '../../src/db/index.js';
-import { handleAlert, hasOpenIncident, runDeferredActions } from '../../src/remediation/incident/incident.service.js';
+import { handleAlert, hasOpenIncident, RESOLVED_IN_GRACE, runDeferredActions } from '../../src/remediation/incident/incident.service.js';
 import * as memory from '../../src/remediation/incident/incident.state.js';
 import { _resetGrace, configureGrace, endGrace, inGrace, rebuildGrace, startGrace } from '../../src/shipping/grace.service.js';
 
@@ -77,6 +77,15 @@ describe('alerts inside the grace window (FR-71, FR-72)', () => {
     memory._reset();
   });
 
+  // the action that would have run, skipped with its reason (P3c)
+  const skippedOnly = (action) => {
+    assert.equal(writes.attempts.length, 1);
+    const [a] = writes.attempts;
+    assert.equal(a.action, action);
+    assert.equal(a.result, 'SKIPPED');
+    assert.equal(a.reason, RESOLVED_IN_GRACE);
+  };
+
   it('an OOM kill that resolves is recorded with no action, and still blocks the healthy mark', async () => {
     startGrace(release, app);
     assert.equal(inGrace('demo'), true);
@@ -92,7 +101,8 @@ describe('alerts inside the grace window (FR-71, FR-72)', () => {
 
     const verdict = await endGrace('r1');
     assert.equal(inGrace('demo'), false);
-    assert.deepEqual(writes.attempts, [], 'no action ran, then or at the end of the window');
+    // no action ran, then or at the end of the window: only the skipped one is recorded
+    skippedOnly('RESTART');
     assert.deepEqual(verdict, { healthy: false, reason: 'KairoOOMKilled fired during the grace window' });
     assert.deepEqual(writes.healthy, []);
   });
@@ -103,7 +113,7 @@ describe('alerts inside the grace window (FR-71, FR-72)', () => {
     const verdict = await endGrace('r1');
     assert.equal(verdict.healthy, false);
     assert.match(verdict.reason, /KairoCrashLoop fired during the grace window/);
-    assert.deepEqual(writes.attempts, []);
+    skippedOnly('ROLLBACK');
   });
 
   it('any other alert that resolves leaves the release healthy (FR-72 judges the end)', async () => {
@@ -112,7 +122,7 @@ describe('alerts inside the grace window (FR-71, FR-72)', () => {
     assert.equal(writes.incidents[0].attempts, undefined);
 
     const verdict = await endGrace('r1');
-    assert.deepEqual(writes.attempts, []);
+    skippedOnly('SCALE_UP');
     assert.deepEqual(verdict, { healthy: true });
     assert.deepEqual(writes.healthy, ['r1']);
   });

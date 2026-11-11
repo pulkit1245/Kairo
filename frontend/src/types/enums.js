@@ -64,6 +64,7 @@ export const INCIDENT_STATUSES = Object.freeze(['OPEN', 'RESOLVED']);
 
 export const ATTEMPT_TRIGGERS = Object.freeze(['AUTO', 'MANUAL']);
 
+// SKIPPED, UNVERIFIED and FAILED attempts carry a `reason` saying why (P3)
 export const ATTEMPT_RESULTS = Object.freeze([
   'APPLIED',
   'VERIFIED',

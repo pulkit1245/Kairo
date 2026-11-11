@@ -52,6 +52,7 @@ export async function verifyAction(p, deps = { check: actionTookEffect, db: pris
 
   const result = verdict.done ? 'VERIFIED' : 'UNVERIFIED';
   const seconds = Math.round(deps.verifyMs / 1000);
+  const reason = verdict.done ? null : `not confirmed within ${seconds} s: ${verdict.detail}`;
   if (!verdict.done) {
     log.warn(`${slug}: ${action} not confirmed within ${seconds} s (${verdict.detail}): UNVERIFIED`);
     setAppHealth(slug, 'NEEDS_ATTENTION', `the ${action.toLowerCase().replace('_', ' ')} wasn't confirmed within ${seconds} s (${verdict.detail})`);
@@ -63,7 +64,7 @@ export async function verifyAction(p, deps = { check: actionTookEffect, db: pris
   // record second
   const id = await Promise.resolve(attemptId).catch(() => null);
   if (id) {
-    const data = { result, verifiedAt: verdict.done ? new Date() : null };
+    const data = { result, verifiedAt: verdict.done ? new Date() : null, ...(reason && { reason }) };
     await deps.db.remediationAttempt
       .update({ where: { id }, data })
       .catch(async (err) => {

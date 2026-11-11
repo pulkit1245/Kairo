@@ -37,12 +37,13 @@ export function actionText(attempt) {
 
 // what the action did, for the timeline
 export function actionDetail(attempt, incident) {
+  const why = attempt.reason ? ` Reason: ${attempt.reason}.` : '';
   if (attempt.result === 'SKIPPED') {
     return attempt.action === 'NONE'
       ? 'Kairo has no action for this alert.'
-      : `Kairo didn't act${attempt.dryRun ? ' (dry run)' : ''}. It would have chosen: ${actionText(attempt).toLowerCase()}.`;
+      : `Kairo didn't act${attempt.dryRun ? ' (dry run)' : ''}. It would have chosen: ${actionText(attempt).toLowerCase()}.${why}`;
   }
-  if (attempt.result === 'FAILED') return `The ${actionText(attempt).toLowerCase()} itself failed.`;
+  if (attempt.result === 'FAILED') return `The ${actionText(attempt).toLowerCase()} itself failed.${why}`;
   switch (attempt.action) {
     case 'RESTART':
       return incident.pod

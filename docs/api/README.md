@@ -348,7 +348,8 @@ The latest 50 Incidents, newest first.
       "toSha": null,
       "toSource": null,
       "attemptedAt": "2026-11-10T10:48:33.120Z",
-      "verifiedAt": null
+      "verifiedAt": null,
+      "reason": "dry run"
     }
   ]
 }
@@ -364,6 +365,7 @@ The latest 50 Incidents, newest first.
 | `attempts[].trigger` | `AUTO`, `MANUAL` |
 | `attempts[].result` | `APPLIED` (ran, being checked), `VERIFIED` (took effect within 90 s), `UNVERIFIED` (didn't), `FAILED`, `SKIPPED` (dry run, no action for the alert, auto-heal off, given up, mid-rollout) |
 | `attempts[].fromReleaseId`, `toReleaseId` | For a rollback: the release rolled away from and the one rolled back to |
+| `attempts[].reason` | Why it was `SKIPPED` (e.g. "auto-heal is off", "gave up: 3 attempts in 10 minutes", "a rollout is in progress", "the alert resolved during the grace window, before its deferred action ran"), `UNVERIFIED` ("not confirmed within 90 s: 1 of 2 replicas ready") or `FAILED`; `null` otherwise and for attempts recorded before P3c |
 | `attempts[].fromSha`, `toSha`, `fromSource`, `toSource` | Those releases' commits and sources (since P3). Break It's `TEST` release has the commit of the release it replaced |
 
 ## GET /api/incidents/:id

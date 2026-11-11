@@ -86,6 +86,7 @@ function IncidentRow({ incident: i, onOpen }) {
             {a.trigger === 'MANUAL' && <span className="text-on-surface-variant">manual</span>}
             <StatusBadge status={r} className="text-code-sm" />
             {a.verifiedAt && <span className="ml-auto text-tertiary">{duration(a.attemptedAt, a.verifiedAt)}</span>}
+            {a.reason && <span className="basis-full text-on-surface-variant">{a.reason}</span>}
           </div>
         );
       })}

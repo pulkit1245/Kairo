@@ -13,6 +13,9 @@ const log = createLogger('remediation');
 
 // The one gate every automatic action goes through, in this order:
 //
+// Every SKIPPED or FAILED attempt carries its reason (the note), for the
+// drawer; verify.service.js adds one to UNVERIFIED attempts.
+//
 //   1. no action for the alert                      -> SKIPPED
 //   2. the app NEEDS_ATTENTION                      -> SKIPPED, Kairo stopped acting (FR-48, FR-73)
 //   3. auto-heal off                                -> SKIPPED, NEEDS_ATTENTION (FR-51, AQ9)
@@ -37,13 +40,13 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
   const attemptedAt = new Date();
   const skip = (note, health) => {
     if (health) setAppHealth(app.slug, 'NEEDS_ATTENTION', health);
-    return done(app, { action, trigger, dryRun: env.remediationDryRun, result: 'SKIPPED', attemptedAt }, note);
+    return done(app, { action, trigger, dryRun: env.remediationDryRun, result: 'SKIPPED', attemptedAt, reason: note }, note);
   };
 
   if (action === 'NONE') return skip('no action for this alert');
   if (state.getHealth(app.slug) === 'NEEDS_ATTENTION') return skip('the app needs attention: Kairo stopped acting on it');
   if (!state.isAutoHeal(app.slug)) return skip('auto-heal is off', 'an alert fired with auto-heal off');
-  if (isRolloutInProgress(app.slug)) return skip('app is mid-rollout');
+  if (isRolloutInProgress(app.slug)) return skip('a rollout is in progress');
   if (!NOT_COUNTED.has(action) && state.recentAttempts(app.slug) >= state.GIVE_UP_ATTEMPTS) {
     log.warn(`${app.slug}: ${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes, giving up`);
     return skip(`gave up: ${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes`, `${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes didn't fix it`);
@@ -69,6 +72,8 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
     attemptedAt,
     fromReleaseId: outcome.rollback?.from?.id ?? null,
     toReleaseId: outcome.rollback?.to?.id ?? null,
+    // why it didn't run (e.g. "already at 3 replicas, the cap") or failed
+    reason: outcome.result === 'SKIPPED' || outcome.result === 'FAILED' ? (outcome.note ?? null) : null,
   };
   if (outcome.result !== 'APPLIED') state.releaseAction(app.slug, token);
   if (outcome.result === 'SKIPPED') return done(app, attempt, outcome.note);

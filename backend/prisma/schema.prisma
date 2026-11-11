@@ -251,6 +251,8 @@ model RemediationAttempt {
   attemptedAt   DateTime          @default(now())
   // set when the check after the action passes (FR-73, P3)
   verifiedAt    DateTime?
+  // why it was SKIPPED, UNVERIFIED or FAILED, e.g. "auto-heal is off" (P3)
+  reason        String?
 
   @@index([incidentId])
 }
