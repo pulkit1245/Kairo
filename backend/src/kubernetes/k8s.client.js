@@ -104,6 +104,29 @@ export async function ensureNamespace(name, labels = {}) {
   }
 }
 
+// FR-65: deleting the namespace removes everything in it (Deployment,
+// Service, Ingress, pods). Kubernetes finishes it in the background; already
+// gone is fine. Returns 'deleting' or 'gone'.
+export async function deleteNamespace(name) {
+  try {
+    await call((c) => c.makeApiClient(k8s.CoreV1Api).deleteNamespace({ name }));
+    return 'deleting';
+  } catch (err) {
+    if (isNotFound(err)) return 'gone';
+    throw err;
+  }
+}
+
+export async function namespaceExists(name) {
+  try {
+    await call((c) => c.makeApiClient(k8s.CoreV1Api).readNamespace({ name }));
+    return true;
+  } catch (err) {
+    if (isNotFound(err)) return false;
+    throw err;
+  }
+}
+
 // Server-side apply: creates each object or updates it to match, and records
 // Kairo as the owner of the fields it set. Same call for first deploy and redeploy.
 export async function applyObjects(objects) {
@@ -333,6 +356,25 @@ export async function putAlertRules(slug, content) {
         kind: 'ConfigMap',
         metadata: { ...ALERT_RULES_CONFIGMAP },
         data: { [`${slug}.rules.yml`]: content },
+      },
+      undefined,
+      undefined,
+      'kairo',
+      undefined,
+      k8s.PatchStrategy.MergePatch,
+    ),
+  );
+}
+
+// FR-65: a merge patch with null removes just this app's key
+export async function deleteAlertRules(slug) {
+  await call((c) =>
+    k8s.KubernetesObjectApi.makeApiClient(c).patch(
+      {
+        apiVersion: 'v1',
+        kind: 'ConfigMap',
+        metadata: { ...ALERT_RULES_CONFIGMAP },
+        data: { [`${slug}.rules.yml`]: null },
       },
       undefined,
       undefined,

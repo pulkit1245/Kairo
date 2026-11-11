@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { AppIncidents } from '../components/app/AppIncidents.jsx';
 import { AttentionBanner } from '../components/app/AttentionBanner.jsx';
 import { AutoHealToggle } from '../components/app/AutoHealToggle.jsx';
+import { DeleteAppDialog } from '../components/app/DeleteAppDialog.jsx';
 import { IncidentDrawer } from '../components/app/IncidentDrawer.jsx';
 import { KpiRow } from '../components/app/KpiRow.jsx';
 import { LogsPanel } from '../components/app/LogsPanel.jsx';
@@ -36,6 +37,8 @@ export function AppPage() {
   const metrics = usePoll(() => getAppMetrics(slug), POLL_MS, [slug]);
   const [openIncident, setOpenIncident] = useState(null);
   const closeIncident = useCallback(() => setOpenIncident(null), []);
+  const [deleting, setDeleting] = useState(false);
+  const closeDelete = useCallback(() => setDeleting(false), []);
   // ticks every second during a grace window or Send Traffic, for their countdowns
   const now = useNow((app?.release && !app.release.healthyAt) || app?.traffic?.running);
 
@@ -47,7 +50,7 @@ export function AppPage() {
       <Link to="/" className="inline-flex w-fit items-center gap-1 text-body-md text-on-surface-variant hover:text-on-surface">
         <Icon name="arrow_back" className="text-[16px]" /> Apps
       </Link>
-      <AppHeader app={app} now={now} />
+      <AppHeader app={app} now={now} onDelete={() => setDeleting(true)} />
       <AttentionBanner app={app} />
       <KpiRow metrics={metrics.data} app={app} />
       <MetricCharts metrics={metrics.data} incidents={app.incidents} error={metrics.error} />
@@ -64,11 +67,12 @@ export function AppPage() {
       </Panel>
       <TestPanel app={app} now={now} />
       {openIncident && <IncidentDrawer id={openIncident} onClose={closeIncident} />}
+      {deleting && <DeleteAppDialog app={app} onClose={closeDelete} />}
     </div>
   );
 }
 
-function AppHeader({ app, now }) {
+function AppHeader({ app, now, onDelete }) {
   const health = HEALTH[app.health] ?? HEALTH.HEALTHY;
   const r = app.release;
   return (
@@ -125,6 +129,13 @@ function AppHeader({ app, now }) {
           </Link>
         )}
         <AutoHealToggle app={app} />
+        <button
+          type="button"
+          onClick={onDelete}
+          className="ml-auto inline-flex items-center gap-1.5 rounded border border-error/40 px-2.5 py-1 font-mono text-code-sm text-error hover:bg-error-container/20"
+        >
+          <Icon name="delete" className="text-[15px]" /> Delete app
+        </button>
       </div>
 
       <p className="flex items-center gap-1.5 text-body-sm text-on-surface-variant">

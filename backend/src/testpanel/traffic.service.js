@@ -45,7 +45,7 @@ export async function startTraffic(slug, { rps = TRAFFIC_RPS, seconds = TRAFFIC_
   const path = (await send(slug, '/work?ms=1', agent)) === 200 ? WORK_PATH : '/';
 
   const startedAt = Date.now();
-  const run = { path, startedAt, endsAt: startedAt + seconds * 1000, sent: 0, ok: 0, failed: 0 };
+  const run = { path, startedAt, endsAt: startedAt + seconds * 1000, sent: 0, ok: 0, failed: 0, agent };
   runs.set(slug, run);
   run.timer = setInterval(() => {
     if (Date.now() >= run.endsAt) return stop(slug, agent);
@@ -55,6 +55,12 @@ export async function startTraffic(slug, { rps = TRAFFIC_RPS, seconds = TRAFFIC_
   run.timer.unref();
   log.info(`${slug}: sending ${rps} req/s of GET ${path} for ${seconds} s`);
   return { path, rps, startedAt: new Date(startedAt).toISOString(), endsAt: new Date(run.endsAt).toISOString() };
+}
+
+// FR-65: a deleted app gets no more traffic
+export function stopTraffic(slug) {
+  const run = runs.get(slug);
+  if (run) stop(slug, run.agent);
 }
 
 function stop(slug, agent) {

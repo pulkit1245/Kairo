@@ -2,6 +2,7 @@ import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import { deletePod, deploymentSpec, k8sErrorMessage, scaleDeployment, setImage } from '../../kubernetes/k8s.client.js';
 import { storedImages } from '../../shipping/prune.service.js';
+import { docker } from '../../utils/docker.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('remediation');
@@ -69,18 +70,32 @@ async function restartPod(ctx, dryRun, extra = {}) {
  * still stored (FR-38), other than the one running now.
  */
 export function pickRollbackTarget(releases, runningImage) {
-  const stored = storedImages(releases);
-  return (
-    [...releases]
-      .sort((a, b) => new Date(b.deployedAt) - new Date(a.deployedAt))
-      .find((r) => r.healthyAt && r.imageRef !== runningImage && stored.has(r.imageRef)) ?? null
-  );
+  return rollbackCandidates(releases, runningImage)[0] ?? null;
 }
+
+// every possible target, best first
+export function rollbackCandidates(releases, runningImage) {
+  const stored = storedImages(releases);
+  return [...releases]
+    .sort((a, b) => new Date(b.deployedAt) - new Date(a.deployedAt))
+    .filter((r) => r.healthyAt && r.imageRef !== runningImage && stored.has(r.imageRef));
+}
+
+// the image must really be on the laptop: deleting an app removes all its
+// images, and a re-added app keeps its old releases (FR-65, FR-66)
+const imageOnDisk = async (ref) => (await docker(['image', 'inspect', '--format', '{{.Id}}', ref])).code === 0;
 
 async function rollBack(ctx, dryRun) {
   const { image: running } = await deploymentSpec(ctx.namespace, ctx.slug);
   const releases = await prisma.release.findMany({ where: { appId: ctx.appId } });
-  const target = pickRollbackTarget(releases, running);
+  let target = null;
+  for (const r of rollbackCandidates(releases, running)) {
+    if (await imageOnDisk(r.imageRef)) {
+      target = r;
+      break;
+    }
+    log.info(`${ctx.slug}: ${r.commitSha.slice(0, 7)} is healthy but its image ${r.imageRef} isn't on disk any more`);
+  }
   if (!target) {
     // FR-50: no healthy release to go back to: restart once, then NEEDS_ATTENTION
     log.warn(`${ctx.slug}: no earlier healthy release to roll back to; restarting once`);

@@ -100,6 +100,14 @@ export async function rebuild(now = Date.now()) {
   return { apps: apps.length, recentAttempts: attempts.length };
 }
 
+// a deleted app (FR-65): Kairo knows nothing more about it
+export function forget(slug) {
+  health.delete(slug);
+  autoHeal.delete(slug);
+  recent.delete(slug);
+  acting.delete(slug);
+}
+
 // for tests
 export function _reset() {
   health.clear();

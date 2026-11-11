@@ -181,6 +181,23 @@ Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes re
 
 400 for another `kind`; 409 during a rollout or grace window, with no running release, or when the broken release already runs.
 
+## DELETE /api/apps/:slug
+
+Deletes the app (FR-65, Stitch 09). The body must name it: `{ "confirm": "kairo-node-sample" }`.
+
+Kairo deletes the app's namespace (its Deployment, Service, Ingress and pods go with it) and its key in the alert rules ConfigMap, stops its grace window, Send Traffic and healing, closes its open incidents (no recovery time), and sets `deletedAt`. Once the namespace is gone, it removes the app's images from the laptop. Releases, incidents and attempts are kept. GitHub is never touched: the repo, its PR, the files Kairo added, GHCR images and issues stay (FR-66). Adding the same repo again reuses the app, its slug and its history.
+
+```json
+{ "slug": "kairo-node-sample", "namespace": "kairo-kairo-node-sample", "namespaceState": "deleting", "closedIncidents": 0, "imagesToRemove": 4, "deletedAt": "…" }
+```
+
+| Status | When |
+| --- | --- |
+| `400` | `confirm` isn't the app's name |
+| `404` | Unknown or already deleted |
+| `409` | A pipeline run, a rollout or an action being checked (up to 90 s) is in progress |
+| `502` | The cluster refused; nothing is marked deleted, so it can be tried again |
+
 ## POST /api/apps/:slug/pr
 
 Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy, Kairo opens or updates the PR; if it wasn't, Kairo checks it again first (FR-72) and opens the PR only if it passes. Returns the app's PR fields:

@@ -86,6 +86,13 @@ export function close(fingerprint) {
   return entry;
 }
 
+// a deleted app (FR-65): its open alerts are dropped, and a later alert for
+// it finds no app and is ignored (PRD section 8)
+export function forgetApp(slug) {
+  apps.delete(slug);
+  for (const [fingerprint, e] of open) if (e.slug === slug) open.delete(fingerprint);
+}
+
 export function rememberApp(app) {
   apps.set(app.slug, { id: app.id, slug: app.slug, namespace: app.namespace });
 }

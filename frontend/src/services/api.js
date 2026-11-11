@@ -73,6 +73,13 @@ export const setAutoHeal = (slug, autoHeal) =>
 export const sendTraffic = (slug) => postJson(`${app(slug)}/traffic`);
 /** @param {'kill-pod' | 'broken-release'} kind */
 export const breakApp = (slug, kind) => postJson(`${app(slug)}/break`, { kind });
+// FR-65: `confirm` must be the app's name
+export const deleteApp = (slug, confirm) =>
+  request(app(slug), {
+    method: 'DELETE',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ confirm }),
+  });
 
 /** @returns {Promise<{ ok: boolean, db: 'up'|'down', cluster: 'up'|'down' }>} */
 export const getHealth = () => request('/health');

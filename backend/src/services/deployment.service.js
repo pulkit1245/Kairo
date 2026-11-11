@@ -6,6 +6,7 @@ import { k8sErrorMessage, listRunningApps } from '../kubernetes/k8s.client.js';
 import { toDeploymentDto } from '../models/dto.mapper.js';
 import { AppError, NotFoundError } from '../utils/AppError.js';
 import { appNamespace } from '../utils/appNames.js';
+import { setAutoHealState, setHealthState } from '../remediation/healing/healing.state.js';
 import { createLogger } from '../utils/logger.js';
 import { parseGithubUrl, pickSlug } from '../utils/repoUrl.js';
 
@@ -28,7 +29,7 @@ export async function createDeployment(repoUrl) {
   // refused before anything is created or cloned (FR-9)
   await checkAppLimit(existing?.id);
 
-  const app = existing ?? (await createApp(owner, repo));
+  const app = existing?.revive ? await revive(existing) : (existing ?? (await createApp(owner, repo)));
   return startRun(app.id);
 }
 
@@ -48,8 +49,9 @@ export async function onboardRepo(userId, repoFullName) {
   }
   if (found.repo.private) throw new AppError(PRIVATE_REPO_MESSAGE);
 
-  const existing = await findApp(owner, repo);
-  await checkAppLimit(existing?.id);
+  const known = await findApp(owner, repo);
+  await checkAppLimit(known?.id);
+  const existing = known?.revive ? await revive(known) : known;
 
   const data = {
     installationId: found.installation.id,
@@ -98,10 +100,23 @@ async function startRun(appId) {
   return toDeploymentDto(run);
 }
 
-function findApp(owner, repo) {
-  return prisma.app.findFirst({
-    where: { repoFullName: { equals: `${owner}/${repo}`, mode: 'insensitive' }, deletedAt: null },
-  });
+// The live app for the repo, else a deleted one, brought back: adding a
+// deleted repo again reuses its row, slug and history (FR-65, FR-66)
+async function findApp(owner, repo) {
+  const repoFullName = { equals: `${owner}/${repo}`, mode: 'insensitive' };
+  const live = await prisma.app.findFirst({ where: { repoFullName, deletedAt: null } });
+  if (live) return live;
+  const deleted = await prisma.app.findFirst({ where: { repoFullName, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } });
+  return deleted ? { ...deleted, revive: true } : null;
+}
+
+// called once the app limit allows it
+async function revive(app) {
+  const back = await prisma.app.update({ where: { id: app.id }, data: { deletedAt: null, health: 'HEALTHY', replicas: 1 } });
+  setHealthState(back.slug, 'HEALTHY');
+  setAutoHealState(back.slug, back.autoHeal);
+  log.info(`${back.slug}: added again, reusing the deleted app's history`);
+  return back;
 }
 
 async function createApp(owner, repo, extra = {}) {

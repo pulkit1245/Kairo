@@ -61,3 +61,5 @@ export async function getIncident(id) {
   if (!row) throw new NotFoundError('Incident');
   return { ...toIncidentDto(row), memory: await incidentMemory(row, row.app) };
 }
+
+export { deleteApp } from './delete.service.js';

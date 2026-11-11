@@ -1,5 +1,5 @@
 import { retrySetupPr } from '../generator/pr/pr.service.js';
-import { getApp, sendTraffic, updateApp } from '../services/app.service.js';
+import { deleteApp, getApp, sendTraffic, updateApp } from '../services/app.service.js';
 import { appLogs } from '../services/logs.service.js';
 import { appMetrics } from '../services/metrics.service.js';
 import { breakApp } from '../testpanel/break.service.js';
@@ -51,4 +51,9 @@ export async function metrics(req, res) {
 // GET /api/apps/:slug/logs: the newest pod's last 50 lines (FR-58)
 export async function logs(req, res) {
   res.json(await appLogs(req.params.slug));
+}
+
+// DELETE /api/apps/:slug { confirm: "<slug>" } (FR-65, FR-66)
+export async function remove(req, res) {
+  res.json(await deleteApp(req.params.slug, req.body?.confirm));
 }
