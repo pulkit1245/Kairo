@@ -32,6 +32,8 @@ const log = createLogger('delete');
 
 export const NAMESPACE_GONE_WITHIN_MS = 120_000;
 const POLL_MS = 2000;
+const IMAGE_TRIES = 6;
+const IMAGE_RETRY_MS = 5000;
 
 // Break It's image is shared by every app
 const SHARED_IMAGES = new Set(['kairo/broken-release:1']);
@@ -106,9 +108,17 @@ async function removeImagesWhenGone(app, images, waitMs = NAMESPACE_GONE_WITHIN_
   log.info(`${app.slug}: no pods left in ${app.namespace}; removing its images`);
   const removed = [];
   for (const ref of images) {
-    const { code, output } = await docker(['image', 'rm', ref]);
-    if (code === 0) removed.push(ref);
-    else if (!/No such image/i.test(output)) log.warn(`${app.slug}: kept ${ref}: ${output.split('\n')[0]}`);
+    // a pod's stopped container can outlive the pod by a few seconds and
+    // still hold the image: try again a few times before keeping it
+    for (let attempt = 1; ; attempt++) {
+      const { code, output } = await docker(['image', 'rm', ref]);
+      if (code === 0) removed.push(ref);
+      else if (/is using its referenced image/i.test(output) && attempt < IMAGE_TRIES) {
+        await new Promise((r) => setTimeout(r, IMAGE_RETRY_MS));
+        continue;
+      } else if (!/No such image/i.test(output)) log.warn(`${app.slug}: kept ${ref}: ${output.split('\n')[0]}`);
+      break;
+    }
   }
   log.info(`${app.slug}: removed ${removed.length} of ${images.length} image(s)`);
   return { removed };
