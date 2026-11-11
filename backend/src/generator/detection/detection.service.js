@@ -1,12 +1,13 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../../utils/AppError.js';
+import { detectPython, PYTHON_PORT } from './python.detection.js';
 
 // Stack detection (FR-11 to FR-16). Rules only for now; Gemini fills facts the
-// rules leave unknown in P4 (FR-17).
+// rules leave unknown in P4 (FR-17). Python's rules are in python.detection.js.
 //
 // Rule order (FR-11): an existing Dockerfile is kept, then package.json means
-// Node, then requirements.txt means Python. A kept Dockerfile still reads the
+// Node, then requirements.txt or pyproject.toml means Python. A kept Dockerfile still reads the
 // manifests, because the workflow's test step needs the Node facts.
 //
 // Every fact records where it came from (FR-15), shown in the onboarding view
@@ -14,12 +15,10 @@ import { AppError } from '../../utils/AppError.js';
 //   { value, source: 'rule' | 'default', from: 'package-lock.json' }
 
 export const NODE_PORT = 3000;
-export const PYTHON_PORT = 8000;
+export { PYTHON_PORT };
 export const DEFAULT_NODE_VERSION = 22;
 // majors with an official node:<n>-slim image Kairo will use
 export const NODE_VERSIONS = [18, 20, 22, 24];
-const PYTHON_VERSION = '3.12';
-const PYTHON_ENTRYPOINTS = ['main.py', 'app.py', 'server.py'];
 const NODE_ENTRYPOINTS = ['index.js', 'server.js'];
 
 // what `npm init` writes; it isn't a real test script (FR-13)
@@ -44,7 +43,9 @@ const byDefault = (value, from) => ({ value, source: 'default', from });
  *   node: null | { version: number, packageManager: 'npm'|'yarn'|'pnpm', corepack: boolean,
  *                  installCommand: string, ciInstallCommand: string, buildCommand: string|null,
  *                  pruneCommand: string|null, testCommand: string|null },
- *   python: null | { version: string },
+ *   python: null | { version: string, framework: 'DJANGO'|'FASTAPI'|'FLASK'|null,
+ *                    install: 'requirements'|'requirements-after-copy'|'project'|'packages',
+ *                    packages: string[], serverPackage: string|null, collectstatic: boolean },
  *   facts: Record<string, { value: any, source: 'rule'|'default', from: string }>,
  *   assumptions: string[],
  * }>}
@@ -61,12 +62,13 @@ export async function detectStack(dir) {
   }
 
   const hasNode = await has('package.json');
-  const hasPython = await has('requirements.txt');
+  const hasPython = (await has('requirements.txt')) || (await has('pyproject.toml'));
 
   if (hasNode) {
     if (hasPython) {
       // PRD section 8: pick Node, record the guess, flag it in the PR
-      assumptions.push('The repo has both package.json and requirements.txt; Kairo treated it as a Node.js app.');
+      const manifest = (await has('requirements.txt')) ? 'requirements.txt' : 'pyproject.toml';
+      assumptions.push(`The repo has both package.json and ${manifest}; Kairo treated it as a Node.js app.`);
     }
     const node = await detectNode(dir, facts, assumptions, { needStart: !existingDockerfile });
     return result('NODE', NODE_PORT, node.startCommand, { existingDockerfile, node: node.node, facts, assumptions });
@@ -78,14 +80,14 @@ export async function detectStack(dir) {
   }
 
   if (existingDockerfile) {
-    facts.stack = byDefault('unknown', 'no package.json or requirements.txt');
+    facts.stack = byDefault('unknown', 'no package.json, requirements.txt or pyproject.toml');
     facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');
     assumptions.push(`The Dockerfile's app listens on $PORT (${NODE_PORT}) on 0.0.0.0; Kairo injects PORT and can't read it from the Dockerfile.`);
     return result(null, NODE_PORT, null, { existingDockerfile, facts, assumptions });
   }
 
   throw new AppError(
-    'Unsupported stack: expected a Dockerfile, package.json (Node) or requirements.txt (Python) in the repo root',
+    'Unsupported stack: expected a Dockerfile, package.json (Node), or requirements.txt or pyproject.toml (Python) in the repo root',
   );
 }
 
@@ -251,26 +253,6 @@ export function nodeVersion(range) {
     why: `engines.node "${r}" has no version Kairo builds with`,
     note: `engines.node is "${r}"; Kairo used Node ${DEFAULT_NODE_VERSION}.`,
   };
-}
-
-// Python stays as in P1 until P4 adds frameworks (FR-14)
-async function detectPython(dir, facts, assumptions, { needStart }) {
-  facts.stack = rule('Python', 'requirements.txt');
-  facts.pythonVersion = byDefault(PYTHON_VERSION, 'no version file read yet (P4)');
-  let startCommand = null;
-  for (const file of PYTHON_ENTRYPOINTS) {
-    if (await exists(dir, file)) {
-      startCommand = ['python', file];
-      facts.startCommand = rule(`python ${file}`, `${file} in the repo root`);
-      break;
-    }
-  }
-  if (!startCommand && needStart) {
-    throw new AppError(`Python project needs one of ${PYTHON_ENTRYPOINTS.join(', ')} in the repo root`);
-  }
-  facts.port = byDefault(PYTHON_PORT, 'injected as $PORT (FR-16)');
-  assumptions.push(`The app listens on $PORT (${PYTHON_PORT}) on 0.0.0.0.`);
-  return { startCommand, python: { version: PYTHON_VERSION } };
 }
 
 async function exists(dir, file) {
