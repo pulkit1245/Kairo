@@ -253,12 +253,17 @@ Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy
 ## GET /api/health
 
 ```json
-{ "ok": true, "db": "up", "cluster": "up", "dryRun": false }
+{
+  "ok": true, "db": "up", "cluster": "up", "dryRun": false,
+  "gemini": { "state": "up", "model": "gemini-3.8-flash", "detail": null, "at": "…" }
+}
 ```
 
 `db` and `cluster` are `"up"` or `"down"`. `ok` is always `true` when the API answers. `dryRun` is `true` when healing only records incidents and never touches pods (`REMEDIATION_DRY_RUN`). The frontend polls this every 10 s.
 
-**Changed in P1:** added `dryRun`.
+`gemini.state` is the last Gemini call's outcome: `up`, `down` (it failed, so Kairo used its defaults and rule-based causes), `off` (`GEMINI_ENABLED=false` or no key) or `unknown` (no call yet). `model` is the model that last answered, `detail` says why it is down or off, or which model stood in for a busy one, and `at` is when (FR-20).
+
+**Changed in P1:** added `dryRun`. **Changed in P4:** added `gemini`.
 
 ## POST /api/deployments
 
@@ -338,13 +343,13 @@ A "deployment" is one pipeline run plus a few fields from its app.
 | `stack` | `NODE`, `PYTHON`, or `null` before detection or for a repo with only a Dockerfile |
 | `failureReason` | Readable reason when `FAILED`, one line. E.g. `Build failed (docker exited with code 1)` or `App didn't answer on $PORT (3000) within 3 minutes (CrashLoopBackOff)` |
 | `logTail` | When the build failed: its last 80 log lines (FR-28). Otherwise `[]` |
-| `explanation` | Gemini's explanation of a failure (P4), else `null` |
+| `explanation` | When the build failed: Gemini's plain-English reading of `logTail` (FR-28). `null` for other failures, or when Gemini is off or didn't answer |
 | `finishedAt` | `null` while the run is still going. Set when it ends, at `RUNNING` or `FAILED` |
 | `configs[].kind` | `DOCKERFILE`, `DEPLOYMENT`, `SERVICE`, `INGRESS`, `WORKFLOW` or `ALERT_RULES` |
 | `configs[].origin` | `GENERATED`, or `KEPT_EXISTING` when the repo already had the file (FR-25). A kept Dockerfile is built as it is and left out of the PR |
 | `pr.state` | `OPEN`, `MERGED`, `CLOSED`, `FAILED` (with `pr.error`), or `null` before Kairo has tried (FR-34, AQ11). On every deployment |
 | `pr.bot` | The account the PR comes from: the GitHub App's bot, `<app slug>[bot]` |
-| `facts` | Detail only. Each detected fact: `value`, `source` (`rule` = read from the repo, `default`) and `from` (FR-15) |
+| `facts` | Detail only. Each detected fact: `value`, `source` (`rule` = read from the repo, `gemini` = filled by Gemini and checked against the repo (FR-17 to FR-19), `default`) and `from` (FR-15). For a `gemini` fact, `from` is Gemini's one-line reason |
 | `assumptions` | Detail only. What Kairo assumed, also listed in the PR |
 | `release` | Detail only. The preview release this run produced: `healthyAt` is set once it passes its 60 s grace window (`graceEndsAt`) (FR-71, FR-72). `null` before `RUNNING` |
 
@@ -442,6 +447,8 @@ One incident for the drawer (Stitch 08): the Incident above plus its app's memor
 ```
 
 `pods` has each of the app's pods (up to 6, the incident's own `pod` first) from 5 minutes before the alert to 3 minutes after it resolved, or now while it is open, so a restarted pod's replacement shows too. `error` is set when Prometheus didn't answer; Prometheus keeps one day of data, so older incidents have no points.
+
+`explanation` is Gemini's reading of the alert and the pod's last 50 log lines (redacted first), stored a few seconds after the incident opens (FR-53, P4). It stays `null` when Gemini is off or didn't answer; `cause` is always the rule-based one (FR-54).
 
 **Changed in P0:** removed `deploymentId` and `action`. Added `appId`, `explanation`, `githubIssueNumber` and `attempts`. `recoverySeconds` is now stored when the incident resolves instead of being worked out on every request.
 
