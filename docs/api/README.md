@@ -78,6 +78,42 @@ Starts onboarding from a picked repo (FR-3). Body `{ "repoFullName": "owner/repo
 | `502` | GitHub didn't answer |
 | `503` | The cluster can't be reached, so the limit can't be checked |
 
+## GET /api/apps
+
+The Apps list (since P4, Stitch 06): every app that isn't deleted, running apps first. An app whose onboarding failed is listed too, with no `release` and its run's `failedStep`.
+
+```json
+{
+  "apps": [
+    {
+      "id": "…",
+      "slug": "kairo-node-sample",
+      "repoFullName": "PunitXd/kairo-node-sample",
+      "stack": "NODE",
+      "health": "HEALTHY",
+      "attentionReason": null,
+      "autoHeal": true,
+      "replicas": 1,
+      "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
+      "tunnel": "up",
+      "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
+      "release": { "id": "…", "commitSha": "…", "commitMessage": "docs: rollout test 2", "source": "GHCR", "deployedAt": "…" },
+      "lastIncident": { "id": "…", "alertName": "KairoHighCpu", "cause": "…", "status": "RESOLVED", "startedAt": "…", "recoverySeconds": 45 },
+      "now": { "rps": 0, "cpuCores": 0.001, "cpuShare": 0.002, "memoryBytes": 44040192, "memoryLimitBytes": 268435456, "replicasReady": 1, "replicasDesired": 1, "unavailable": false }
+    }
+  ],
+  "running": 2,
+  "maxRunning": 3
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `release` | The `ACTIVE` release, or `null` when nothing is deployed |
+| `now` | One instant Prometheus query per number; `null` for an app with no release. A number is `null` when its query failed or has no data; `unavailable` is `true` when every query failed |
+| `now.cpuShare` | CPU of all pods as a share of what the ready pods may use (0.5 core each) |
+| `running` | Apps with an `ACTIVE` release; `maxRunning` is the limit (FR-9) |
+
 ## GET /api/apps/:slug
 
 The app page (since P2c): header, active release and the last 10 releases. 404 for an unknown or deleted app.
@@ -93,7 +129,8 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
   "health": "HEALTHY",
   "autoHeal": true,
   "replicas": 1,
-  "publicUrl": null,
+  "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
+  "tunnel": "up",
   "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
   "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true },
   "releases": [ "…same shape, newest first…" ],
@@ -105,6 +142,8 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | Field | Meaning |
 | --- | --- |
 | `release` | The `ACTIVE` release, or `null` |
+| `publicUrl` | The app's public link (FR-40): a Cloudflare quick tunnel to Traefik, saved once it connects and its name resolves. `null` while it starts or restarts, and after a delete. It changes every time the tunnel restarts (FR-41) |
+| `tunnel` | `starting`, `up`, `restarting` (died, a new one within 30 s), or `null` (no tunnel: nothing deployed, or `TUNNELS_ENABLED=false`) |
 | `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
@@ -185,7 +224,7 @@ Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes re
 
 Deletes the app (FR-65, Stitch 09). The body must name it: `{ "confirm": "kairo-node-sample" }`.
 
-Kairo deletes the app's namespace (its Deployment, Service, Ingress and pods go with it) and its key in the alert rules ConfigMap, stops its grace window, Send Traffic and healing, closes its open incidents (no recovery time), and sets `deletedAt`. Once the namespace is gone, it removes the app's images from the laptop. Releases, incidents and attempts are kept. GitHub is never touched: the repo, its PR, the files Kairo added, GHCR images and issues stay (FR-66). Adding the same repo again reuses the app, its slug and its history.
+Kairo deletes the app's namespace (its Deployment, Service, Ingress and pods go with it) and its key in the alert rules ConfigMap, stops its grace window, Send Traffic, its tunnel (the public link) and healing, closes its open incidents (no recovery time), and sets `deletedAt`. Once the namespace is gone, it removes the app's images from the laptop. Releases, incidents and attempts are kept. GitHub is never touched: the repo, its PR, the files Kairo added, GHCR images and issues stay (FR-66). Adding the same repo again reuses the app, its slug and its history.
 
 ```json
 { "slug": "kairo-node-sample", "namespace": "kairo-kairo-node-sample", "namespaceState": "deleting", "closedIncidents": 0, "imagesToRemove": 4, "deletedAt": "…" }

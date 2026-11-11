@@ -28,6 +28,10 @@ Two settings in `.env` come from the platform set-up in `infra/README.md`:
 
 The API listens on every interface, not only localhost, because Alertmanager inside the cluster calls it at `http://host.docker.internal:4000/api/alerts`. That endpoint needs the bearer token (FR-45). Every other endpoint needs sign-in (FR-42).
 
+### Public links (P4)
+
+Each running app gets a public link through a Cloudflare quick tunnel (FR-40): one `cloudflared` process per app, started when the app reaches `RUNNING` and for every running app when the backend starts, pointed at Traefik (`TRAEFIK_URL`) with the host header `<slug>.kairo.local`. No Cloudflare account is needed. Install it with `brew install cloudflared`. A tunnel that dies is restarted within 30 s and its new link saved (FR-41); the link changes each time. `TUNNELS_ENABLED=false` turns them off; `CLOUDFLARED_PATH` points at another binary. The code is in `src/tunnel/tunnel.service.js`.
+
 ### Sign-in and the GitHub App (P2)
 
 Sign-in uses the Kairo GitHub App's user authorization. `.env` needs the App's `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, the path of its private key (`GITHUB_APP_PRIVATE_KEY_PATH`, default `~/.kairo/kairo-github-app.pem`, outside the repo), a `SESSION_SECRET` (`openssl rand -hex 32`) and `ALLOWED_GITHUB_LOGINS`. The App's callback URL is `<APP_URL>/api/auth/callback`, with `APP_URL` defaulting to the Vite dev server, `http://localhost:5173`. Without these the backend still starts, warns, and every endpoint answers 401.
@@ -62,6 +66,7 @@ Full shapes are in [`docs/api/README.md`](../docs/api/README.md).
 | GET, POST | `/api/auth/me`, `/api/auth/logout` | Who is signed in; sign out |
 | GET | `/api/health` | API, database and cluster status |
 | GET | `/api/repos` | Repos your installations can see, for the picker |
+| GET | `/api/apps` | The Apps list: live apps with health, pipeline, active release, last incident, public link and live numbers |
 | POST | `/api/apps` | `{ "repoFullName": "owner/repo" }` → 202, onboarding from a picked repo |
 | GET, PATCH, DELETE | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR, latest incidents. PATCH `{ "autoHeal": bool }`. DELETE `{ "confirm": "<slug>" }` removes it from the cluster, keeps its history |
 | GET | `/api/apps/:slug/metrics` | KPIs and the last 30 minutes from Prometheus (fixed queries) |
