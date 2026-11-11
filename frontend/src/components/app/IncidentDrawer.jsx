@@ -109,7 +109,8 @@ function Header({ incident: i }) {
   );
 }
 
-// Gemini's explanation (FR-53) arrives in P4; until then the slot says so
+// Gemini's explanation (FR-53), stored a few seconds after the incident
+// opens. Without it, the rule-based cause above is the whole story (FR-54)
 function Explanation({ incident }) {
   return (
     <section className="flex flex-col gap-2 rounded border border-outline-variant bg-surface-container px-4 py-3">
@@ -117,11 +118,16 @@ function Explanation({ incident }) {
         <Icon name="psychology" className="text-[20px] text-primary" /> What happened
       </h3>
       {incident.explanation ? (
-        <p className="text-body-lg">{incident.explanation}</p>
+        <>
+          <p className="text-body-lg">{incident.explanation}</p>
+          <p className="flex items-center gap-1 font-mono text-code-sm text-on-surface-variant">
+            <Icon name="auto_awesome" className="text-[14px]" /> Explained by Gemini from the alert and the pod's last 50 log lines
+          </p>
+        </>
       ) : (
         <p className="text-body-md text-on-surface-variant">
-          No explanation yet. Gemini will explain incidents from the pod's logs here; until then, the cause above is Kairo's rule-based
-          reading of the alert.
+          No explanation from Gemini. It explains incidents from the pod's logs a few seconds after they open; when it is off or busy,
+          the cause above is Kairo's rule-based reading of the alert.
         </p>
       )}
     </section>

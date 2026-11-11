@@ -1,7 +1,8 @@
 import { Icon } from '../common/Icon.jsx';
 
 // "What Kairo found" (Stitch 04, FR-15): each detected fact, its value and
-// where it came from. `rule` = read from the repo, `default` = nothing to read.
+// where it came from. `rule` = read from the repo, `gemini` = Gemini filled a
+// fact the rules couldn't find (FR-17), `default` = nothing to read.
 const LABELS = {
   stack: 'Stack',
   dockerfile: 'Dockerfile',
@@ -66,22 +67,24 @@ export function FactsPanel({ facts, assumptions }) {
         </div>
       )}
       <p className="mt-auto flex items-center gap-1.5 border-t border-outline-variant px-4 py-2 text-body-sm text-on-surface-variant">
-        <Icon name="info" className="text-[14px]" /> Gemini will only fill facts Kairo couldn't read from the repo (P4).
+        <Icon name="info" className="text-[14px]" /> Gemini only fills facts Kairo couldn't read from the repo, and Kairo checks its answer against the repo first.
       </p>
     </section>
   );
 }
 
+const SOURCES = {
+  rule: { label: 'repo', icon: 'description', tone: 'border-outline-variant text-on-surface' },
+  gemini: { label: 'Gemini', icon: 'auto_awesome', tone: 'border-primary/60 text-primary' },
+  default: { label: 'default', icon: 'remove', tone: 'border-outline-variant text-on-surface-variant' },
+};
+
 function SourceTag({ fact }) {
-  const fromRepo = fact.source === 'rule';
+  const s = SOURCES[fact.source] ?? SOURCES.default;
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-code-sm ${
-        fromRepo ? 'border-outline-variant text-on-surface' : 'border-outline-variant text-on-surface-variant'
-      }`}
-    >
-      <Icon name={fromRepo ? 'description' : 'remove'} className="text-[14px]" />
-      {fromRepo ? 'repo' : 'default'}
+    <span className={`inline-flex flex-wrap items-center gap-1 rounded border px-2 py-0.5 font-mono text-code-sm ${s.tone}`}>
+      <Icon name={s.icon} className="text-[14px]" />
+      {s.label}
       <span className="text-on-surface-variant">({fact.from})</span>
     </span>
   );
