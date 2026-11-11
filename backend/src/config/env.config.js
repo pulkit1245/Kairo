@@ -62,7 +62,7 @@ export const env = {
     apiKey: process.env.GEMINI_API_KEY || null,
     model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     // tried when the model is busy, failing or slow; empty = none
-    fallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash',
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.5-flash-lite',
     timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 15_000,
   },
 
