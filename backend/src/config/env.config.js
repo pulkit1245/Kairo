@@ -50,6 +50,9 @@ export const env = {
   prometheusUrl: (process.env.PROMETHEUS_URL || 'http://localhost:9090').replace(/\/$/, ''),
   // Traefik's LoadBalancer on localhost, for Send Traffic (FR-62)
   traefikUrl: (process.env.TRAEFIK_URL || 'http://localhost').replace(/\/$/, ''),
+  // FR-40: a Cloudflare quick tunnel per running app, to traefikUrl
+  tunnelsEnabled: bool('TUNNELS_ENABLED', true),
+  cloudflaredPath: process.env.CLOUDFLARED_PATH || 'cloudflared',
 
   // signs the session cookie. Without it nobody can sign in (FR-42)
   sessionSecret: process.env.SESSION_SECRET || null,

@@ -11,6 +11,7 @@ import {
   waitForRollout,
 } from '../kubernetes/k8s.client.js';
 import { startGrace } from '../shipping/grace.service.js';
+import { startTunnel } from '../tunnel/tunnel.service.js';
 import { pruneImages } from '../shipping/prune.service.js';
 import { beginRollout, endRollout } from '../state/rollout.state.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
@@ -142,6 +143,8 @@ export async function runPipeline(runId) {
 
     await moveTo(runId, 'RUNNING', { finishedAt: new Date() });
     log.info(`${app.slug}: RUNNING in ${Math.round((Date.now() - started) / 1000)} s`);
+    // FR-40: the public link, in the background (an app that already has one keeps it)
+    startTunnel(app);
   } catch (err) {
     const known = err instanceof AppError;
     const reason = known ? err.message : `Unexpected error: ${k8sErrorMessage(err)}`;

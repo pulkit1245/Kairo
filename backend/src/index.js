@@ -16,6 +16,7 @@ import { resumeVerifications } from './remediation/healing/verify.service.js';
 import { checkScaleDown, SCALE_DOWN_INTERVAL_MS } from './remediation/scaling/scaledown.service.js';
 import { checkGhcr, WATCH_INTERVAL_MS } from './shipping/ghcr.watcher.js';
 import { configureGrace, rebuildGrace } from './shipping/grace.service.js';
+import { startTunnelsAtBoot, stopAllTunnels } from './tunnel/tunnel.service.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
 
@@ -61,6 +62,11 @@ async function main() {
     log.error('could not reach the database on startup', err);
   }
 
+  // FR-40: public links for the apps already running
+  startTunnelsAtBoot()
+    .then((n) => n > 0 && log.info(`starting ${n} public link(s)`))
+    .catch((err) => log.error('could not start the public links', err));
+
   const leftovers = await emptyWorkspace();
   if (leftovers > 0) log.warn(`removed ${leftovers} leftover clone folder(s) from the workspace`);
 
@@ -92,6 +98,7 @@ async function main() {
 
   const shutdown = (signal) => {
     log.info(`${signal} received, shutting down`);
+    stopAllTunnels();
     server.close(async () => {
       await prisma.$disconnect();
       process.exit(0);
