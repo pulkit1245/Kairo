@@ -41,8 +41,9 @@ const timing = {
   readyWithinMs: 25_000,
   // a process that dies sooner than this after working counts as failing again
   stableAfterMs: 60_000,
-  // how long to wait for the name to resolve before saving the link anyway
-  dnsWithinMs: 20_000,
+  // how long to wait for the name to resolve before saving the link anyway.
+  // Usually 1-8 s after the connection; once over 20 s (11 Nov)
+  dnsWithinMs: 60_000,
   dnsPollMs: 1000,
 };
 
@@ -135,7 +136,8 @@ async function publishWhenResolvable(entry, child, url) {
   if (entry.child !== child || entry.stopping) return;
   if (!resolved) log.warn(`${entry.app.slug}: ${host} didn't resolve within ${timing.dnsWithinMs / 1000} s; showing it anyway`);
   entry.url = url;
-  log.info(`${entry.app.slug}: public link ${url} (${Math.round((Date.now() - entry.startedAt) / 1000)} s)`);
+  const dnsSec = Math.round((Date.now() - (until - timing.dnsWithinMs)) / 1000);
+  log.info(`${entry.app.slug}: public link ${url} (${Math.round((Date.now() - entry.startedAt) / 1000)} s, DNS ${dnsSec} s)`);
   savePublicUrl(entry.app, url);
 }
 
@@ -145,7 +147,9 @@ async function nameResolves(host) {
   try {
     if (!authoritative) {
       const names = await dns.resolveNs('trycloudflare.com');
-      const ips = (await Promise.all(names.map((n) => dns.lookup(n).then((r) => r.address, () => null)))).filter(Boolean);
+      // IPv4 first: a network without working IPv6 still gets an answer
+      const found = await Promise.all(names.map((n) => dns.lookup(n, { all: true }).catch(() => [])));
+      const ips = found.flat().sort((a, b) => a.family - b.family).map((a) => a.address);
       if (!ips.length) return false;
       authoritative = new dns.Resolver({ timeout: 2000, tries: 1 });
       authoritative.setServers(ips);
