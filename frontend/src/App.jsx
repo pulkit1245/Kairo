@@ -3,8 +3,8 @@ import { RequireAuth } from './components/auth/auth.jsx';
 import { Layout } from './components/common/Layout.jsx';
 import { AddRepoPage } from './pages/AddRepoPage.jsx';
 import { AppPage } from './pages/AppPage.jsx';
+import { AppsPage } from './pages/AppsPage.jsx';
 import { DeploymentPage } from './pages/DeploymentPage.jsx';
-import { DeploymentsPage } from './pages/DeploymentsPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { NotInvitedPage } from './pages/NotInvitedPage.jsx';
 import { SignInPage } from './pages/SignInPage.jsx';
@@ -21,7 +21,7 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { path: '/', element: <DeploymentsPage /> },
+      { path: '/', element: <AppsPage /> },
       { path: '/apps/new', element: <AddRepoPage /> },
       { path: '/apps/:slug', element: <AppPage /> },
       { path: '/deployments/:id', element: <DeploymentPage /> },

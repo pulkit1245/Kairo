@@ -24,4 +24,11 @@ export function runStatus(run) {
   return { label: `${title(run.status)} done`, icon: 'task_alt', tone: 'ok' };
 }
 
+// app health (Stitch 06, 07): a word, an icon, a tone and the box around it
+export const HEALTH = {
+  HEALTHY: { label: 'Healthy', icon: 'check_circle', tone: 'ok', box: 'border-tertiary/30 bg-tertiary/10' },
+  HEALING: { label: 'Healing', icon: 'healing', tone: 'busy', box: 'border-primary/30 bg-primary/10' },
+  NEEDS_ATTENTION: { label: 'Needs attention', icon: 'warning', tone: 'bad', box: 'border-error/40 bg-error-container/20' },
+};
+
 export const stackLabel = (stack) => (stack === 'NODE' ? 'Node.js' : stack === 'PYTHON' ? 'Python' : '—');

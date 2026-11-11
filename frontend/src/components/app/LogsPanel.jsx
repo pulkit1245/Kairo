@@ -31,7 +31,7 @@ export function LogsPanel({ slug }) {
   }, [data]);
 
   return (
-    <section className="flex min-w-0 flex-col rounded border border-outline-variant bg-surface-container-low">
+    <section id="logs" className="flex min-w-0 scroll-mt-4 flex-col rounded border border-outline-variant bg-surface-container-low">
       <header className="flex flex-wrap items-center gap-2 border-b border-outline-variant px-4 py-3">
         <h2 className="flex items-center gap-2 font-mono text-code-md uppercase tracking-wider text-on-surface-variant">
           <span className={`size-2 rounded-full ${paused ? 'bg-outline' : 'bg-tertiary'}`} aria-hidden="true" /> App logs

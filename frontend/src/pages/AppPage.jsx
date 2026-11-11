@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { AppIncidents } from '../components/app/AppIncidents.jsx';
 import { AttentionBanner } from '../components/app/AttentionBanner.jsx';
 import { AutoHealToggle } from '../components/app/AutoHealToggle.jsx';
@@ -13,7 +13,7 @@ import { TestPanel } from '../components/app/TestPanel.jsx';
 import { relativeTime, shortSha } from '../components/common/format.js';
 import { Icon } from '../components/common/Icon.jsx';
 import { Panel, PanelMessage } from '../components/common/Panel.jsx';
-import { runStatus, stackLabel, TONE_CLASS } from '../components/common/status.js';
+import { HEALTH, runStatus, stackLabel, TONE_CLASS } from '../components/common/status.js';
 import { StatusBadge } from '../components/common/StatusBadge.jsx';
 import { usePoll } from '../hooks/usePoll.js';
 import { getApp, getAppMetrics } from '../services/api.js';
@@ -22,12 +22,6 @@ import { getApp, getAppMetrics } from '../services/api.js';
 // charts, incidents and logs, releases and the test panel. Everything polls
 // every 5 s (FR-56, FR-58): healing and rollouts happen in the background.
 const POLL_MS = 5000;
-
-const HEALTH = {
-  HEALTHY: { label: 'Healthy', icon: 'check_circle', tone: 'ok', box: 'border-tertiary/30 bg-tertiary/10' },
-  HEALING: { label: 'Healing', icon: 'healing', tone: 'busy', box: 'border-primary/30 bg-primary/10' },
-  NEEDS_ATTENTION: { label: 'Needs attention', icon: 'warning', tone: 'bad', box: 'border-error/40 bg-error-container/20' },
-};
 
 const PR_LABEL = { OPEN: 'Open', MERGED: 'Merged', CLOSED: 'Closed', FAILED: "Couldn't open" };
 
@@ -41,6 +35,13 @@ export function AppPage() {
   const closeDelete = useCallback(() => setDeleting(false), []);
   // ticks every second during a grace window or Send Traffic, for their countdowns
   const now = useNow((app?.release && !app.release.healthyAt) || app?.traffic?.running);
+
+  // the Apps list's Logs button links to #logs: scroll there once the page is drawn
+  const { hash } = useLocation();
+  const loaded = Boolean(app);
+  useEffect(() => {
+    if (loaded && hash === '#logs') document.getElementById('logs')?.scrollIntoView({ block: 'start' });
+  }, [loaded, hash]);
 
   if (loading) return <PanelMessage>Loading…</PanelMessage>;
   if (!app) return <PanelMessage tone="bad">{error?.message ?? 'Not found'}</PanelMessage>;
@@ -108,10 +109,16 @@ function AppHeader({ app, now, onDelete }) {
         <a href={app.repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
           {app.repoFullName} <Icon name="open_in_new" className="text-[14px]" />
         </a>
-        {app.publicUrl && (
-          <a href={app.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+        {app.publicUrl ? (
+          <a href={app.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 break-all text-primary hover:underline">
             {app.publicUrl} <Icon name="open_in_new" className="text-[14px]" />
           </a>
+        ) : (
+          app.tunnel && (
+            <span className="text-on-surface-variant">
+              {app.tunnel === 'restarting' ? 'Public link dropped; restarting it…' : 'Starting the public link…'}
+            </span>
+          )
         )}
         {app.pr.number && app.pr.url ? (
           <a href={app.pr.url} target="_blank" rel="noreferrer" className="rounded border border-outline-variant bg-surface-container px-2 py-0.5 text-secondary hover:underline">

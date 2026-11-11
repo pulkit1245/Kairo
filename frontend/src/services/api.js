@@ -56,6 +56,8 @@ export const logout = () => postJson('/auth/logout');
 // the repo picker (FR-3, FR-6)
 export const listRepos = () => request('/repos');
 export const onboardRepo = (repoFullName) => postJson('/apps', { repoFullName });
+// the Apps list (Stitch 06): live apps, their health, release and numbers
+export const listApps = () => request('/apps');
 // Try again when the setup PR couldn't be opened (AQ11)
 export const getApp = (slug) => request(`/apps/${encodeURIComponent(slug)}`);
 export const retryPr = (slug) => postJson(`/apps/${encodeURIComponent(slug)}/pr`);
@@ -85,7 +87,6 @@ export const deleteApp = (slug, confirm) =>
 export const getHealth = () => request('/health');
 
 // a "deployment" is one pipeline run (see backend/src/types/deployment.types.js)
-export const listDeployments = () => request('/deployments');
 // the P1 repo-URL shortcut, kept for testing and hidden from the UI (AQ10).
 // Only Retry uses it, for runs that were started that way
 export const createDeployment = (repoUrl) => postJson('/deployments', { repoUrl });
