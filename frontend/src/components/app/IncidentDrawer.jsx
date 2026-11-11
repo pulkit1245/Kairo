@@ -282,7 +282,11 @@ function events(i) {
     }
   }
   if (i.resolvedAt) {
-    list.push({ t: i.resolvedAt, title: 'Alert resolved', text: 'Prometheus marked the alert resolved.', icon: 'check_circle', tone: 'ok' });
+    list.push(
+      isManual(i)
+        ? { t: i.resolvedAt, title: 'Closed', text: "Kairo closed the incident when the rollback's check ended.", icon: 'check_circle', tone: 'ok' }
+        : { t: i.resolvedAt, title: 'Alert resolved', text: 'Prometheus marked the alert resolved.', icon: 'check_circle', tone: 'ok' },
+    );
   }
   const at = (e) => (e.t ? Date.parse(e.t) : Infinity);
   return list.sort((a, b) => at(a) - at(b));
