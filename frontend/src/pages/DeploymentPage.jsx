@@ -114,8 +114,10 @@ export function DeploymentPage() {
           {retryError}
         </p>
       )}
+      {/* grid-cols-[minmax(0,1fr)]: on a phone the one column may shrink, so a
+          wide table scrolls in its box instead of widening the page */}
       {run.status === 'RUNNING' && (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <FactsPanel facts={run.facts} assumptions={run.assumptions} />
           <div className="flex flex-col gap-5">
             <PreviewPanel appName={run.appName} release={run.release} />

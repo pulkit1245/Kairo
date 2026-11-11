@@ -34,7 +34,8 @@ export function FactsPanel({ facts, assumptions }) {
         </h2>
         <span className="font-mono text-code-sm text-on-surface-variant">{rows.length} facts</span>
       </header>
-      <div className="overflow-x-auto">
+      {/* contain: paint keeps the table from widening a phone's page; it scrolls in here */}
+      <div className="overflow-x-auto [contain:paint]">
         <table className="w-full text-left">
           <thead>
             <tr className="font-mono text-code-sm uppercase tracking-wider text-on-surface-variant">
