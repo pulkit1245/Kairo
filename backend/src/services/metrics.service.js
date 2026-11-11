@@ -50,8 +50,9 @@ export async function appMetrics(slug, now = Date.now()) {
   const app = await prisma.app.findFirst({ where: { slug, deletedAt: null }, select: { slug: true, namespace: true } });
   if (!app) throw new NotFoundError('App');
   const q = appQueries(app);
-  // whole steps, so two refreshes line up and the chart doesn't jitter
-  const endSec = Math.floor(now / 1000 / STEP_SEC) * STEP_SEC;
+  // ends now, not on a whole step: a new sample shows on the next refresh
+  // instead of up to 15 s later (Send Traffic should move the chart at once)
+  const endSec = Math.floor(now / 1000);
   const range = { startSec: endSec - WINDOW_SEC, endSec, stepSec: STEP_SEC };
 
   const jobs = [

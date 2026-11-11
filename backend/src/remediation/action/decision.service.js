@@ -14,7 +14,7 @@ export const RULES = {
 
   // SCALE_DOWN never comes from an alert: the scale-down check (P3) triggers it
 
-  KairoHighCpu: { action: 'SCALE_UP', cause: 'A pod used over 80% of its CPU limit for a minute' },
+  KairoHighCpu: { action: 'SCALE_UP', cause: 'A pod used over 80% of its CPU limit (30 s average, for 15 s)' },
   KairoHighLatency: { action: 'SCALE_UP', cause: 'Responses took over a second (p95) for two minutes' },
 };
 

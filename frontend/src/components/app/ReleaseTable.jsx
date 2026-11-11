@@ -52,7 +52,8 @@ export function ReleaseTable({ releases, now }) {
                 <td className={`${td} text-body-md`}>{r.commitMessage ?? <span className="text-on-surface-variant">—</span>}</td>
                 <td className={`${td} font-mono text-code-md`} title={r.imageRef}>
                   {r.source === 'GHCR' ? 'GHCR' : r.source === 'TEST' ? 'Break It' : 'Preview'}
-                  {!r.imageStored && <span className="block text-code-sm text-on-surface-variant">image pruned</span>}
+                  {/* Break It's shared image is never pruned, and never a rollback target either */}
+                  {!r.imageStored && r.source !== 'TEST' && <span className="block text-code-sm text-on-surface-variant">image pruned</span>}
                 </td>
                 <td className={`${td} text-on-surface-variant`} title={r.deployedAt}>
                   {relativeTime(r.deployedAt, now)}

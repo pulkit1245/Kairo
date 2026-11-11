@@ -262,6 +262,12 @@ function events(i) {
   return list.sort((a, b) => at(a) - at(b));
 }
 
+// "14 s", "6 min 16 s"
+function since(start, iso) {
+  const s = Math.round((Date.parse(iso) - start) / 1000);
+  return s < 120 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
+}
+
 function Timeline({ incident }) {
   const list = events(incident);
   const start = Date.parse(incident.startedAt);
@@ -282,7 +288,7 @@ function Timeline({ incident }) {
                 {e.t ? `${utcClock(e.t, true)} UTC · ` : ''}
                 {e.title}
               </span>
-              {e.t && <span className="shrink-0 text-on-surface-variant">T+{Math.round((Date.parse(e.t) - start) / 1000)} s</span>}
+              {e.t && <span className="shrink-0 text-on-surface-variant">T+{since(start, e.t)}</span>}
             </div>
             <p className="text-body-md">{e.text}</p>
           </li>

@@ -26,8 +26,8 @@ const markers = {
     ctx.save();
     ctx.font = "10px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textBaseline = 'top';
-    let lastLabelEnd = -Infinity;
-    let row = 0;
+    // placed labels per row; a label goes on the first row where it fits
+    const rows = [];
     for (const m of items) {
       const x = scales.x.getPixelForValue(m.x);
       if (x < chartArea.left || x > chartArea.right) continue;
@@ -38,14 +38,14 @@ const markers = {
       ctx.moveTo(x, chartArea.top);
       ctx.lineTo(x, chartArea.bottom);
       ctx.stroke();
-      if (m.label) {
-        const w = ctx.measureText(m.label).width;
-        // labels that would overlap go one row down
-        row = x - 2 < lastLabelEnd ? row + 1 : 0;
-        const left = Math.min(x + 3, chartArea.right - w);
-        ctx.fillText(m.label, left, chartArea.top + 2 + row * 12);
-        lastLabelEnd = left + w;
-      }
+      if (!m.label) continue;
+      const w = ctx.measureText(m.label).width;
+      // right of the line, or left of it near the right edge
+      const left = x + 3 + w > chartArea.right - 4 ? x - 3 - w : x + 3;
+      let row = rows.findIndex((boxes) => boxes.every(([a, b]) => left + w + 4 < a || left > b + 4));
+      if (row === -1) row = rows.push([]) - 1;
+      rows[row].push([left, left + w]);
+      ctx.fillText(m.label, left, chartArea.top + 2 + row * 12);
     }
     ctx.restore();
   },
