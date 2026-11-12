@@ -76,24 +76,95 @@ export async function detectFacts(dir) {
       assumptions.push(`The repo has both package.json and ${manifest}; Kairo treated it as a Node.js app.`);
     }
     const node = await detectNode(dir, facts, assumptions, unknown, { needStart: !existingDockerfile });
-    return result('NODE', NODE_PORT, node.startCommand, { existingDockerfile, node: node.node, facts, assumptions, unknown });
+    return keptPort(result('NODE', NODE_PORT, node.startCommand, { existingDockerfile, node: node.node, facts, assumptions, unknown }));
   }
 
   if (hasPython) {
     const py = await detectPython(dir, facts, assumptions, unknown, { needStart: !existingDockerfile });
-    return result('PYTHON', PYTHON_PORT, py.startCommand, { existingDockerfile, python: py.python, facts, assumptions, unknown });
+    return keptPort(result('PYTHON', PYTHON_PORT, py.startCommand, { existingDockerfile, python: py.python, facts, assumptions, unknown }));
   }
 
   if (existingDockerfile) {
     facts.stack = byDefault('unknown', 'no package.json, requirements.txt or pyproject.toml');
     facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');
-    assumptions.push(`The Dockerfile's app listens on $PORT (${NODE_PORT}) on 0.0.0.0; Kairo injects PORT and can't read it from the Dockerfile.`);
-    return result(null, NODE_PORT, null, { existingDockerfile, facts, assumptions, unknown });
+    return keptPort(result(null, NODE_PORT, null, { existingDockerfile, facts, assumptions, unknown }));
   }
 
   throw new AppError(
     'Unsupported stack: expected a Dockerfile, package.json (Node), or requirements.txt or pyproject.toml (Python) in the repo root',
   );
+}
+
+// A kept Dockerfile decides the port: the app inside runs the way the
+// Dockerfile says, not the way Kairo's own templates would (FR-25). Its port
+// replaces the stack's default, and Kairo injects the same value as PORT, so
+// an app that reads $PORT and one that doesn't both line up with the probes.
+// Without a readable port the stack default stays, as an assumption.
+function keptPort(detected) {
+  if (!detected.existingDockerfile) return detected;
+  const { facts, assumptions } = detected;
+  // the default's "listens on $PORT" line no longer applies either way
+  const drop = (a) => /listens on \$PORT/.test(a);
+  for (let i = assumptions.length - 1; i >= 0; i--) if (drop(assumptions[i])) assumptions.splice(i, 1);
+  const found = dockerfilePort(detected.existingDockerfile);
+  if (found) {
+    facts.port = rule(found.port, `${found.from} in the Dockerfile`);
+    return { ...detected, port: found.port };
+  }
+  assumptions.push(
+    `The Dockerfile has no EXPOSE (or PORT) Kairo could read, so Kairo assumed port ${detected.port} and injects PORT=${detected.port}; the app must listen on it, on 0.0.0.0.`,
+  );
+  return detected;
+}
+
+/**
+ * The port a Dockerfile's final stage declares: the first EXPOSE port (tcp),
+ * resolving $VAR / ${VAR} from that stage's ENV and ARG defaults, else
+ * ENV/ARG PORT. null when there's none it can read.
+ * @returns {{ port: number, from: string } | null}
+ */
+export function dockerfilePort(text) {
+  // join continuation lines, drop comments and blank lines
+  const lines = text
+    .replace(/\\\r?\n/g, ' ')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  // only the final stage runs
+  const lastFrom = lines.findLastIndex((l) => /^FROM\s/i.test(l));
+  const stage = lines.slice(lastFrom + 1);
+  const vars = {};
+  let expose = null;
+  for (const l of stage) {
+    const m = l.match(/^(ENV|ARG)\s+(.+)$/i);
+    if (m) {
+      const body = m[2].trim();
+      // ENV KEY=value KEY2=value, or the old ENV KEY value
+      if (/^[A-Za-z_]\w*=/.test(body)) {
+        for (const [, k, v] of body.matchAll(/([A-Za-z_]\w*)=("[^"]*"|'[^']*'|\S*)/g)) vars[k] = v.replace(/^["']|["']$/g, '');
+      } else {
+        const [k, ...v] = body.split(/\s+/);
+        if (v.length) vars[k] = v.join(' ');
+      }
+      continue;
+    }
+    const e = l.match(/^EXPOSE\s+(.+)$/i);
+    if (e && expose === null) expose = e[1].trim().split(/\s+/);
+  }
+  const asPort = (raw) => {
+    const value = String(raw ?? '').replace(/^\$\{?(\w+)(?::-([^}]*))?\}?$/, (_, name, dflt) => vars[name] ?? dflt ?? '');
+    const m = value.match(/^(\d{1,5})(?:\/(tcp|udp))?$/i);
+    if (!m || (m[2] && m[2].toLowerCase() === 'udp')) return null;
+    const n = Number(m[1]);
+    return n > 0 && n < 65536 ? n : null;
+  };
+  for (const raw of expose ?? []) {
+    const port = asPort(raw);
+    if (port) return { port, from: `EXPOSE ${raw}` };
+  }
+  const envPort = asPort(vars.PORT);
+  if (envPort) return { port: envPort, from: `PORT=${envPort}` };
+  return null;
 }
 
 function result(stack, port, startCommand, rest) {
