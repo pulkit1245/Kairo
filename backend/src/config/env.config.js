@@ -48,6 +48,10 @@ export const env = {
 
   // Prometheus through the local port-forward (FR-57): only the backend queries it
   prometheusUrl: (process.env.PROMETHEUS_URL || 'http://localhost:9090').replace(/\/$/, ''),
+  // the backend opens and keeps open the port-forward to PROMETHEUS_URL itself
+  // (src/prometheus/forward.service.js); false = someone runs it by hand
+  prometheusForward: bool('PROMETHEUS_PORT_FORWARD', true),
+  kubectlPath: process.env.KUBECTL_PATH || 'kubectl',
   // Traefik's LoadBalancer on localhost, for Send Traffic (FR-62)
   traefikUrl: (process.env.TRAEFIK_URL || 'http://localhost').replace(/\/$/, ''),
   // FR-40: a Cloudflare quick tunnel per running app, to traefikUrl

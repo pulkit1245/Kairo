@@ -270,7 +270,8 @@ Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy
 ```json
 {
   "ok": true, "db": "up", "cluster": "up", "dryRun": false,
-  "gemini": { "state": "up", "model": "gemini-3.8-flash", "detail": null, "at": "…" }
+  "gemini": { "state": "up", "model": "gemini-3.8-flash", "detail": null, "at": "…" },
+  "prometheus": { "state": "up", "restarts": 0, "detail": null }
 }
 ```
 
@@ -278,7 +279,9 @@ Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy
 
 `gemini.state` is the last Gemini call's outcome: `up`, `down` (it failed, so Kairo used its defaults and rule-based causes), `off` (`GEMINI_ENABLED=false` or no key) or `unknown` (no call yet). `model` is the model that last answered, `detail` says why it is down or off, or which model stood in for a busy one, and `at` is when (FR-20).
 
-**Changed in P1:** added `dryRun`. **Changed in P4:** added `gemini`.
+`prometheus` is the port-forward the backend keeps open to Prometheus (FR-57): `up` (its own forward answers), `external` (someone else's forward answers, e.g. `npm run prom:forward`), `starting`, `down` (kubectl ended; it is started again after 2 s, then up to 30 s apart; `detail` is kubectl's last error) or `off` (`PROMETHEUS_PORT_FORWARD=false`, or `PROMETHEUS_URL` isn't on this machine). `restarts` counts how often it was opened again.
+
+**Changed in P1:** added `dryRun`. **Changed in P4:** added `gemini` and `prometheus`.
 
 ## POST /api/deployments
 

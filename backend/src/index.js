@@ -18,6 +18,7 @@ import { checkScaleDown, SCALE_DOWN_INTERVAL_MS } from './remediation/scaling/sc
 import { checkGhcr, WATCH_INTERVAL_MS } from './shipping/ghcr.watcher.js';
 import { configureGrace, rebuildGrace } from './shipping/grace.service.js';
 import { startTunnelsAtBoot, stopAllTunnels } from './tunnel/tunnel.service.js';
+import { startPrometheusForward, stopPrometheusForward } from './prometheus/forward.service.js';
 import { checkGemini } from './gemini/gemini.client.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
@@ -67,6 +68,9 @@ async function main() {
     log.error('could not reach the database on startup', err);
   }
 
+  // FR-57: the way to Prometheus, kept open by the backend itself
+  startPrometheusForward().catch((err) => log.error('could not start the Prometheus port-forward', err));
+
   // FR-40: public links for the apps already running
   startTunnelsAtBoot()
     .then((n) => n > 0 && log.info(`starting ${n} public link(s)`))
@@ -107,6 +111,7 @@ async function main() {
   const shutdown = (signal) => {
     log.info(`${signal} received, shutting down`);
     stopAllTunnels();
+    stopPrometheusForward();
     server.close(async () => {
       await prisma.$disconnect();
       process.exit(0);

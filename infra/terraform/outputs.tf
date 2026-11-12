@@ -20,6 +20,6 @@ output "token_secret" {
 }
 
 output "prometheus_port_forward" {
-  description = "Run this so the backend can query Prometheus on localhost:9090."
+  description = "The backend runs this itself and keeps it open; by hand only for debugging."
   value       = "kubectl -n monitoring port-forward svc/prometheus-server 9090:80"
 }

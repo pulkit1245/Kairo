@@ -111,7 +111,7 @@ Healing acts first and records second (FR-74): it decides from memory, runs the 
 - `npm start`: same thing without watching
 - `npm test`: unit tests (Node's built-in runner, no jest)
 - `npm run db:studio`: look at the tables in a browser
-- `npm run prom:forward`: port-forward Prometheus to `localhost:9090` (uses your own kubeconfig)
+- `npm run prom:forward`: port-forward Prometheus to `localhost:9090` by hand, with your own kubeconfig. Not needed normally: the backend opens this port-forward itself and opens it again whenever it drops (`src/prometheus/forward.service.js`, `PROMETHEUS_PORT_FORWARD`), as `kairo-platform`, which may only read the `prometheus-server` Service, list pods in `monitoring` and port-forward to them (`infra/rbac/main.tf`)
 
 ## Where things live
 
