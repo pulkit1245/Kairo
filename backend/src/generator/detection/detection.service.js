@@ -86,7 +86,7 @@ export async function detectFacts(dir) {
 
   if (existingDockerfile) {
     facts.stack = byDefault('unknown', 'no package.json, requirements.txt or pyproject.toml');
-    facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');
+    facts.port = byDefault(NODE_PORT, 'injected as $PORT');
     return keptPort(result(null, NODE_PORT, null, { existingDockerfile, facts, assumptions, unknown }));
   }
 
@@ -302,7 +302,7 @@ async function detectNode(dir, facts, assumptions, unknown, { needStart }) {
     });
   }
 
-  facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');
+  facts.port = byDefault(NODE_PORT, 'injected as $PORT');
   assumptions.push(`The app listens on $PORT (${NODE_PORT}) on 0.0.0.0.`);
 
   const install = installCommands(packageManager, { lockfile, yarnBerry, withDev: Boolean(buildCommand) });

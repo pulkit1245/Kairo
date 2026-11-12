@@ -151,7 +151,7 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
-| `releases[].rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to (FR-61)", "the current release is still in its 60 s grace window" (since P4d) |
+| `releases[].rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |

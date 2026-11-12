@@ -153,7 +153,7 @@ describe('Node facts and their sources (FR-12, FR-13, FR-15)', () => {
       assert.ok(['rule', 'default'].includes(f.source), name);
       assert.ok(f.from, name);
     }
-    assert.deepEqual(r.facts.port, { value: 3000, source: 'default', from: 'injected as $PORT (FR-16)' });
+    assert.deepEqual(r.facts.port, { value: 3000, source: 'default', from: 'injected as $PORT' });
   });
 
   it('flags a repo with both package.json and requirements.txt', async () => {

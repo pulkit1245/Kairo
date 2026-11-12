@@ -152,7 +152,7 @@ export async function detectPython(dir, facts, assumptions, unknown, { needStart
     });
   }
 
-  facts.port = byDefault(PYTHON_PORT, 'injected as $PORT (FR-16)');
+  facts.port = byDefault(PYTHON_PORT, 'injected as $PORT');
   assumptions.push(`The app listens on $PORT (${PYTHON_PORT}) on 0.0.0.0.`);
 
   return {

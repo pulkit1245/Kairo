@@ -7,8 +7,8 @@ metadata:
     app: {{ appName }}
     app.kubernetes.io/managed-by: kairo
 spec:
-  # Traefik is the only way in (FR-39). It answers on localhost:80, and the
-  # Cloudflare tunnel (P4) points at it with this Host header
+  # Traefik is the only way in. It answers on localhost:80, and the app's
+  # public link (a Cloudflare tunnel) points at it with this Host header
   ingressClassName: traefik
   rules:
     - host: {{ host }}

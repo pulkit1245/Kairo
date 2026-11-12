@@ -23,7 +23,7 @@ const body = (over = {}) =>
     facts: {
       stack: { value: 'Node.js', source: 'rule', from: 'package.json' },
       packageManager: { value: 'npm', source: 'default', from: 'no lockfile' },
-      port: { value: 3000, source: 'default', from: 'injected as $PORT (FR-16)' },
+      port: { value: 3000, source: 'default', from: 'injected as $PORT' },
     },
     assumptions: ['The app listens on $PORT (3000) on 0.0.0.0.'],
     graceSeconds: 60,
@@ -35,7 +35,7 @@ describe('setup PR body (FR-32)', () => {
     const b = body();
     assert.match(b, /\| Stack \| `Node\.js` \| rule: package\.json \|/);
     assert.match(b, /\| Package manager \| `npm` \| default: no lockfile \|/);
-    assert.match(b, /\| Port \| `3000` \| default: injected as \$PORT \(FR-16\) \|/);
+    assert.match(b, /\| Port \| `3000` \| default: injected as \$PORT \|/);
   });
 
   it('lists the assumptions, the files and that Trivy is report-only', () => {
