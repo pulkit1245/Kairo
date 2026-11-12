@@ -64,12 +64,13 @@ export const env = {
   gemini: {
     enabled: bool('GEMINI_ENABLED', true),
     apiKey: process.env.GEMINI_API_KEY || null,
-    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    // 3.5 Flash Lite first (12 Nov): on the free tier it answered every check
+    // in about 2 s and allows 500 requests a day; 3.8 Flash never answered
+    // (overloaded: 503 or timeouts) and allows 20
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     // tried in order when the one before is busy, out of quota, failing or
     // slow; comma separated, empty = none. Ids from the key's model list
-    // (12 Nov): 3.6 Flash, then the two Flash Lite models, which have far
-    // larger free quotas (500 a day for 3.5 Flash Lite against 20)
-    fallbackModels: modelList(process.env.GEMINI_FALLBACK_MODELS, ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']),
+    fallbackModels: modelList(process.env.GEMINI_FALLBACK_MODELS, ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite']),
     // per attempt, so one slow model can't hold up the rest of the chain
     timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 15_000,
   },

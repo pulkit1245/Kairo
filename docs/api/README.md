@@ -270,7 +270,7 @@ Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy
 ```json
 {
   "ok": true, "db": "up", "cluster": "up", "dryRun": false,
-  "gemini": { "state": "up", "model": "gemini-3.8-flash", "detail": null, "at": "…" },
+  "gemini": { "state": "up", "model": "gemini-3.5-flash-lite", "detail": null, "at": "…" },
   "prometheus": { "state": "up", "restarts": 0, "detail": null }
 }
 ```
