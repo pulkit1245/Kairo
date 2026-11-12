@@ -15,7 +15,8 @@ const log = createLogger('remediation');
 //     attentionAfter  a reason to move to NEEDS_ATTENTION once it's verified }
 // VERIFIED / UNVERIFIED come later, from verify.service.js.
 //
-// ctx: { appId, slug, namespace, pod } from the alert and the app
+// ctx: { appId, slug, namespace, pod } from the alert and the app, and
+// toReleaseId for a manual rollback to a chosen release (FR-61)
 
 export const MAX_REPLICAS = 3; // FR-46, PQ4
 
@@ -88,6 +89,7 @@ const imageOnDisk = async (ref) => (await docker(['image', 'inspect', '--format'
 async function rollBack(ctx, dryRun) {
   const { image: running } = await deploymentSpec(ctx.namespace, ctx.slug);
   const releases = await prisma.release.findMany({ where: { appId: ctx.appId } });
+  if (ctx.toReleaseId) return rollBackTo(ctx, dryRun, releases, running);
   let target = null;
   for (const r of rollbackCandidates(releases, running)) {
     if (await imageOnDisk(r.imageRef)) {
@@ -101,6 +103,20 @@ async function rollBack(ctx, dryRun) {
     log.warn(`${ctx.slug}: no earlier healthy release to roll back to; restarting once`);
     return restartPod(ctx, dryRun, { attentionAfter: 'no earlier healthy release to roll back to' });
   }
+  return applyRollback(ctx, dryRun, releases, running, target);
+}
+
+// FR-61: the release a person picked. Same rules as the automatic pick: marked
+// healthy, image still stored and on disk, not the one running now
+async function rollBackTo(ctx, dryRun, releases, running) {
+  const target = rollbackCandidates(releases, running).find((r) => r.id === ctx.toReleaseId);
+  const no = (note) => ({ result: 'SKIPPED', dryRun, note, action: 'ROLLBACK' });
+  if (!target) return no('that release is running now, was never marked healthy, or its image was pruned');
+  if (!(await imageOnDisk(target.imageRef))) return no(`its image ${target.imageRef} isn't on the laptop any more`);
+  return applyRollback(ctx, dryRun, releases, running, target);
+}
+
+async function applyRollback(ctx, dryRun, releases, running, target) {
   await setImage(ctx.namespace, ctx.slug, target.imageRef);
   const from = releases.find((r) => r.status === 'ACTIVE' && r.imageRef === running) ?? releases.find((r) => r.status === 'ACTIVE');
   log.info(`${ctx.slug}: rolled back to ${target.commitSha.slice(0, 7)} (${target.imageRef})`);

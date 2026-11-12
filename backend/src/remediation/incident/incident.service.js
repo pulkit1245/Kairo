@@ -1,5 +1,8 @@
 import { env } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
+import { explainIncident, POD_LOG_LINES } from '../../gemini/explain.service.js';
+import { geminiEnabled } from '../../gemini/gemini.client.js';
+import { incidentPodLog } from '../../kubernetes/k8s.client.js';
 import { recoverySeconds, toIncidentDto } from '../../models/dto.mapper.js';
 import { inGrace, noteAlert } from '../../shipping/grace.service.js';
 import { isRolloutInProgress } from '../../state/rollout.state.js';
@@ -7,6 +10,7 @@ import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
 import { decideAction } from '../action/decision.service.js';
 import { heal } from '../healing/heal.service.js';
+import { reportIncident } from '../issue/issue.service.js';
 import * as memory from './incident.state.js';
 
 const log = createLogger('incidents');
@@ -51,6 +55,9 @@ async function openIncident(alert) {
   const { action, cause } = decideAction(alert.alertName, alert.summary);
   // what an action needs: the app and the pod the alert named
   const target = { alertName: alert.alertName, pod: alert.pod ?? null };
+  // FR-53: the pod's logs, read now, before an action replaces the pod. Not
+  // awaited, so the action doesn't wait for them
+  const logs = readIncidentLogs(app, alert);
 
   // FR-72: an OOM kill or crash loop inside a grace window rules the release out
   if (noteAlert(app.slug, alert.alertName)) log.info(`${alert.alertName} on ${app.slug} in its grace window: the release won't be marked healthy`);
@@ -75,7 +82,10 @@ async function openIncident(alert) {
   if (defer) {
     log.info(`${alert.alertName} on ${app.slug} in its grace window: recorded, ${action} deferred until the window ends`);
     const saved = await withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
-    if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
+    if (saved !== FAILED) {
+      memory.markRecorded(alert.fingerprint, saved.id);
+      explainLater(saved.id, record, logs);
+    }
     return 'opened';
   }
 
@@ -88,9 +98,47 @@ async function openIncident(alert) {
   const saving = withRetry(`record ${alert.alertName} on ${app.slug}`, () => createIncident(record));
   followUp(saving.then((saved) => (saved === FAILED ? null : saved.attempts[0]?.id ?? null)));
   const saved = await saving;
-  if (saved !== FAILED) memory.markRecorded(alert.fingerprint, saved.id);
+  if (saved !== FAILED) {
+    memory.markRecorded(alert.fingerprint, saved.id);
+    // 3. explain, then the GitHub issue, in the background (FR-53, FR-55).
+    // The issue waits for the explanation so it can include it
+    explainLater(saved.id, record, logs).then(() => reportIncident(saved.id).catch(() => {}));
+  }
   // else: the record stays in memory as pending, for the resolve or the flush
   return 'opened';
+}
+
+// alerts whose useful log is the run that just ended
+const ENDED_RUN_ALERTS = new Set(['KairoOOMKilled', 'KairoCrashLoop']);
+
+function readIncidentLogs(app, alert) {
+  if (!geminiEnabled() || !app.namespace) return null;
+  return incidentPodLog(app.namespace, app.slug, {
+    pod: alert.pod ?? null,
+    lines: POD_LOG_LINES,
+    preferPrevious: ENDED_RUN_ALERTS.has(alert.alertName),
+  }).catch(() => null);
+}
+
+// FR-53: Gemini's explanation, stored next to the rule-based cause once it
+// arrives. Never throws and never holds up anything: the incident is already
+// recorded and acted on. FR-51: this runs with auto-heal off too. Resolves
+// when it is done (stored or not)
+function explainLater(incidentId, record, logsRead) {
+  if (!logsRead) return Promise.resolve();
+  return (async () => {
+    const logs = await logsRead;
+    const explanation = await explainIncident({
+      alertName: record.alertName,
+      cause: record.cause,
+      logs: logs?.text ?? null,
+      previous: logs?.previous ?? false,
+      pod: logs?.pod ?? record.pod,
+    });
+    if (!explanation) return;
+    await prisma.incident.update({ where: { id: incidentId }, data: { explanation } });
+    log.info(`${record.alertName} on ${record.slug}: explanation stored`);
+  })().catch((e) => log.warn(`could not store the explanation for ${record.alertName} on ${record.slug}: ${shortError(e)}`));
 }
 
 // FR-71, at the end of an app's grace window (wired in src/index.js): every
@@ -126,6 +174,7 @@ async function runDeferred(fingerprint) {
   );
   followUp(saving.then((saved) => (saved === FAILED ? null : saved.id)));
   if ((await saving) === FAILED) memory.queueWrite({ kind: 'attempt', incidentId: entry.incidentId, attempt });
+  else reportIncident(entry.incidentId).catch(() => {}); // FR-55
 }
 
 // the SKIPPED attempt of an alert that resolved while its action waited for

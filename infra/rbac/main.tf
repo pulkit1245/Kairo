@@ -20,6 +20,12 @@ variable "rules_configmap" {
   type        = string
 }
 
+variable "prometheus_service" {
+  description = "Prometheus's Service in the monitoring namespace, which the backend port-forwards to."
+  type        = string
+  default     = "prometheus-server"
+}
+
 resource "kubernetes_service_account_v1" "kairo_platform" {
   metadata {
     name      = "kairo-platform"
@@ -148,4 +154,55 @@ output "token_secret" {
 
 output "service_account" {
   value = "${var.namespace}/${kubernetes_service_account_v1.kairo_platform.metadata[0].name}"
+}
+
+# The backend keeps its own port-forward to Prometheus open (FR-57), so the
+# dashboard survives a restart of the Mac, Docker Desktop or Prometheus with
+# nobody starting it by hand. kubectl port-forward svc/<name> reads the
+# Service, finds a pod behind it, and opens the forward to that pod. The
+# Service is limited by name; pods can't be (their names change), so this
+# allows reading pods in monitoring and forwarding to them, nothing more.
+resource "kubernetes_role_v1" "prometheus_forward" {
+  metadata {
+    name      = "kairo-platform-prometheus-forward"
+    namespace = var.monitoring_namespace
+  }
+
+  rule {
+    api_groups     = [""]
+    resources      = ["services"]
+    resource_names = [var.prometheus_service]
+    verbs          = ["get"]
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods"]
+    verbs      = ["get", "list"]
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["pods/portforward"]
+    verbs      = ["create"]
+  }
+}
+
+resource "kubernetes_role_binding_v1" "prometheus_forward" {
+  metadata {
+    name      = "kairo-platform-prometheus-forward"
+    namespace = var.monitoring_namespace
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role_v1.prometheus_forward.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account_v1.kairo_platform.metadata[0].name
+    namespace = var.namespace
+  }
 }

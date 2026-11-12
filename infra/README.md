@@ -55,7 +55,7 @@ User apps get their own `kairo-<slug>` namespaces from the backend, which is why
 
 Alertmanager sends every alert to `http://host.docker.internal:4000/api/alerts`, the backend on the Mac (`alert_webhook_url` variable). Pods can resolve `host.docker.internal` on Docker Desktop.
 
-The backend reaches Prometheus through a port-forward (Traefik doesn't need one):
+The backend reaches Prometheus through a port-forward on `localhost:9090` (Traefik doesn't need one). The backend opens it itself and opens it again whenever it drops, so it survives a restart of the Mac, Docker Desktop or Prometheus. It runs as `kairo-platform`, which the Role `monitoring/kairo-platform-prometheus-forward` allows to read the `prometheus-server` Service, list pods in `monitoring` and port-forward to them, nothing else. By hand, for debugging:
 
 ```bash
 kubectl -n monitoring port-forward svc/prometheus-server 9090:80
@@ -73,7 +73,7 @@ infra/scripts/kairo-kubeconfig.sh          # writes ~/.kube/kairo-platform.yaml 
 
 Then set `KUBECONFIG=$HOME/.kube/kairo-platform.yaml` in `backend/.env`. Run the script again after a cluster reset or a destroy and apply, because both create a new token. The token is also in the local Terraform state, which is gitignored.
 
-The port-forward to Prometheus uses your own kubeconfig: `npm run prom:forward` in `backend/`.
+`npm run prom:forward` in `backend/` opens the same port-forward by hand with your own kubeconfig; the backend uses it if it is already open.
 
 ### App alert rules (P1)
 

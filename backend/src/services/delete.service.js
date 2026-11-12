@@ -5,6 +5,7 @@ import { forgetAppIncidents } from '../remediation/incident/incident.service.js'
 import { stopGrace } from '../shipping/grace.service.js';
 import { isRolloutInProgress } from '../state/rollout.state.js';
 import { stopTraffic } from '../testpanel/traffic.service.js';
+import { stopTunnel } from '../tunnel/tunnel.service.js';
 import { AppError, errorMessage, NotFoundError } from '../utils/AppError.js';
 import { docker } from '../utils/docker.js';
 import { createLogger } from '../utils/logger.js';
@@ -13,7 +14,7 @@ import { createLogger } from '../utils/logger.js';
 //
 //   1. checks: the typed name matches; no build, rollout or checked action
 //      is running for the app (each would keep changing it)
-//   2. stop: grace window and Send Traffic
+//   2. stop: grace window, Send Traffic and the tunnel (the public link)
 //   3. cluster: delete the namespace (Deployment, Service, Ingress, pods all
 //      go with it) and the app's key in the alert rules ConfigMap; then
 //      healing and incident memory forget the app
@@ -25,8 +26,7 @@ import { createLogger } from '../utils/logger.js';
 //
 // GitHub is never touched: repo, PR, workflow, GHCR images and issues stay
 // (FR-66). The GHCR watcher and the scale-down check only look at apps
-// without deletedAt, so they stop by themselves. Kairo has no tunnel yet
-// (Cloudflare quick tunnels come later); publicUrl is cleared all the same.
+// without deletedAt, so they stop by themselves.
 
 const log = createLogger('delete');
 
@@ -54,6 +54,7 @@ export async function deleteApp(slug, confirm, deps = { deleteNamespace, deleteA
   // 2. stop what would change the app while it goes
   stopGrace(slug);
   stopTraffic(slug);
+  stopTunnel(slug);
 
   // 3. the cluster
   let namespace;

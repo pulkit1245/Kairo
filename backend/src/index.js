@@ -13,9 +13,13 @@ import {
 import { rebuild as rebuildHealingState } from './remediation/healing/healing.state.js';
 import { clearOnHealthyRelease, clearQuietApps } from './remediation/healing/health.service.js';
 import { resumeVerifications } from './remediation/healing/verify.service.js';
+import { closeLeftoverManual } from './remediation/healing/rollback.service.js';
 import { checkScaleDown, SCALE_DOWN_INTERVAL_MS } from './remediation/scaling/scaledown.service.js';
 import { checkGhcr, WATCH_INTERVAL_MS } from './shipping/ghcr.watcher.js';
 import { configureGrace, rebuildGrace } from './shipping/grace.service.js';
+import { startTunnelsAtBoot, stopAllTunnels } from './tunnel/tunnel.service.js';
+import { startPrometheusForward, stopPrometheusForward } from './prometheus/forward.service.js';
+import { checkGemini } from './gemini/gemini.client.js';
 import { prisma } from './db/index.js';
 import { createLogger } from './utils/logger.js';
 
@@ -44,6 +48,9 @@ async function main() {
   try {
     const stuck = await failInterruptedRuns();
     if (stuck > 0) log.warn(`marked ${stuck} half-finished pipeline run(s) as FAILED`);
+    // a manual rollback has no alert to resolve it: close any the restart left open
+    const leftover = await closeLeftoverManual();
+    if (leftover > 0) log.info(`closed ${leftover} manual rollback incident(s) left open`);
     // FR-74: healing decides from memory, filled from the database once here
     const state = await rebuildIncidentState();
     const healing = await rebuildHealingState();
@@ -60,6 +67,17 @@ async function main() {
     // most likely postgres isn't running. still start so /api/health can say so
     log.error('could not reach the database on startup', err);
   }
+
+  // FR-57: the way to Prometheus, kept open by the backend itself
+  startPrometheusForward().catch((err) => log.error('could not start the Prometheus port-forward', err));
+
+  // FR-40: public links for the apps already running
+  startTunnelsAtBoot()
+    .then((n) => n > 0 && log.info(`starting ${n} public link(s)`))
+    .catch((err) => log.error('could not start the public links', err));
+
+  // FR-20: is the key good and the model there? Only sets the header pill
+  checkGemini();
 
   const leftovers = await emptyWorkspace();
   if (leftovers > 0) log.warn(`removed ${leftovers} leftover clone folder(s) from the workspace`);
@@ -92,6 +110,8 @@ async function main() {
 
   const shutdown = (signal) => {
     log.info(`${signal} received, shutting down`);
+    stopAllTunnels();
+    stopPrometheusForward();
     server.close(async () => {
       await prisma.$disconnect();
       process.exit(0);

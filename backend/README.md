@@ -28,6 +28,20 @@ Two settings in `.env` come from the platform set-up in `infra/README.md`:
 
 The API listens on every interface, not only localhost, because Alertmanager inside the cluster calls it at `http://host.docker.internal:4000/api/alerts`. That endpoint needs the bearer token (FR-45). Every other endpoint needs sign-in (FR-42).
 
+### Public links (P4)
+
+Each running app gets a public link through a Cloudflare quick tunnel (FR-40): one `cloudflared` process per app, started when the app reaches `RUNNING` and for every running app when the backend starts, pointed at Traefik (`TRAEFIK_URL`) with the host header `<slug>.kairo.local`. No Cloudflare account is needed. Install it with `brew install cloudflared`. A tunnel that dies is restarted within 30 s and its new link saved (FR-41); the link changes each time. `TUNNELS_ENABLED=false` turns them off; `CLOUDFLARED_PATH` points at another binary. The code is in `src/tunnel/tunnel.service.js`.
+
+### Gemini (P4)
+
+Gemini fills facts the rules couldn't find (the start file, so far) and explains failed builds and incidents (FR-17 to FR-20, FR-28, FR-53). It never writes files, and Kairo acts on its rules, not on Gemini. Put a key from aistudio.google.com in `GEMINI_API_KEY`; `GEMINI_ENABLED=false` turns every call off and the full loop still works. Calls go through plain `fetch` to `GEMINI_MODEL` (default `gemini-3.5-flash-lite`: on the free tier it answered every check in about 2 s and allows 500 requests a day, while `gemini-3.8-flash` was overloaded and allows 20), then each of `GEMINI_FALLBACK_MODELS` in order (comma separated; default `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.1-flash-lite`) when the one before is busy, out of quota, failing or slower than `GEMINI_TIMEOUT_MS`. Each model gets one attempt, 4 in all at most, and the timeout is per attempt, so a slow model costs one timeout and the next model is tried. Fact answers and build explanations are cached in the `GeminiAnswer` table per commit sha. Before anything is sent, `.env*` and key files are left out and tokens, keys and passwords are redacted by pattern (`src/gemini/redact.service.js`). The code is in `src/gemini/` and `src/generator/detection/fill.service.js`.
+
+### GitHub issues and manual rollback (P4)
+
+When Kairo rolls an app back, or stops acting on it (`NEEDS_ATTENTION`), it opens an issue labelled `kairo` on the app's repo, as the GitHub App (FR-55). The App needs the Issues (read and write) permission. Each app has at most one open Kairo issue: while it is open, every later incident adds a comment, and once someone closes it the next rollback opens a new one. Restarts alone never open one. The issue is filed after the incident is recorded and after Gemini's explanation (if any), so it never delays an action. Apps added from a pasted URL have no installation and get no issue. The code is in `src/remediation/issue/issue.service.js`.
+
+"Roll back to this" on the release list (`POST /api/apps/:slug/rollback`, FR-61) runs the automatic rollback's path with trigger `MANUAL`, including the grace window and the 90 s check, and is recorded as its own `ManualRollback` incident. It works while the app needs attention and with auto-heal off. See `src/remediation/healing/rollback.service.js`.
+
 ### Sign-in and the GitHub App (P2)
 
 Sign-in uses the Kairo GitHub App's user authorization. `.env` needs the App's `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, the path of its private key (`GITHUB_APP_PRIVATE_KEY_PATH`, default `~/.kairo/kairo-github-app.pem`, outside the repo), a `SESSION_SECRET` (`openssl rand -hex 32`) and `ALLOWED_GITHUB_LOGINS`. The App's callback URL is `<APP_URL>/api/auth/callback`, with `APP_URL` defaulting to the Vite dev server, `http://localhost:5173`. Without these the backend still starts, warns, and every endpoint answers 401.
@@ -36,7 +50,7 @@ Installation tokens are minted for each request (`src/github/github.client.js` g
 
 ## Data model
 
-Eight tables, from PRD section 7 (`prisma/schema.prisma`):
+Nine tables, from PRD section 7 (`prisma/schema.prisma`):
 
 | Table | One row per |
 | --- | --- |
@@ -47,6 +61,7 @@ Eight tables, from PRD section 7 (`prisma/schema.prisma`):
 | `Release` | Image that ran for an app (used from P1) |
 | `Incident` | Alert that fired for an app, deduped on Alertmanager's fingerprint |
 | `RemediationAttempt` | Action Kairo took for an incident, and how it went |
+| `GeminiAnswer` | Gemini answer, cached per commit sha and question (P4) |
 
 Every enum exists three times: `src/types/`, `schema.prisma` and `frontend/src/types/enums.js`. Change all three in one commit, with a migration. `tests/unit/enums.test.js` fails if they drift.
 
@@ -62,6 +77,7 @@ Full shapes are in [`docs/api/README.md`](../docs/api/README.md).
 | GET, POST | `/api/auth/me`, `/api/auth/logout` | Who is signed in; sign out |
 | GET | `/api/health` | API, database and cluster status |
 | GET | `/api/repos` | Repos your installations can see, for the picker |
+| GET | `/api/apps` | The Apps list: live apps with health, pipeline, active release, last incident, public link and live numbers |
 | POST | `/api/apps` | `{ "repoFullName": "owner/repo" }` → 202, onboarding from a picked repo |
 | GET, PATCH, DELETE | `/api/apps/:slug` | The app page: health, active release, last 10 releases, PR, latest incidents. PATCH `{ "autoHeal": bool }`. DELETE `{ "confirm": "<slug>" }` removes it from the cluster, keeps its history |
 | GET | `/api/apps/:slug/metrics` | KPIs and the last 30 minutes from Prometheus (fixed queries) |
@@ -95,7 +111,7 @@ Healing acts first and records second (FR-74): it decides from memory, runs the 
 - `npm start`: same thing without watching
 - `npm test`: unit tests (Node's built-in runner, no jest)
 - `npm run db:studio`: look at the tables in a browser
-- `npm run prom:forward`: port-forward Prometheus to `localhost:9090` (uses your own kubeconfig)
+- `npm run prom:forward`: port-forward Prometheus to `localhost:9090` by hand, with your own kubeconfig. Not needed normally: the backend opens this port-forward itself and opens it again whenever it drops (`src/prometheus/forward.service.js`, `PROMETHEUS_PORT_FORWARD`), as `kairo-platform`, which may only read the `prometheus-server` Service, list pods in `monitoring` and port-forward to them (`infra/rbac/main.tf`)
 
 ## Where things live
 

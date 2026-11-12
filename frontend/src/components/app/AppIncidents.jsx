@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { duration, utcStamp } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { StatusBadge } from '../common/StatusBadge.jsx';
-import { actionText, attemptBadge, incidentBadge } from './incident.text.js';
+import { actionText, attemptBadge, incidentBadge, isManual } from './incident.text.js';
 
 // The app's incidents (Stitch 07): newest first, filtered All / Open /
 // Resolved. Each one opens the incident drawer (Stitch 08).
@@ -18,7 +18,7 @@ export function AppIncidents({ incidents, onOpen }) {
   const shown = incidents.filter(FILTERS.find((f) => f.key === filter).test);
 
   return (
-    <section className="flex min-w-0 flex-col rounded border border-outline-variant bg-surface-container-low">
+    <section id="incidents" className="flex min-w-0 scroll-mt-4 flex-col rounded border border-outline-variant bg-surface-container-low">
       <header className="flex items-center justify-between gap-3 border-b border-outline-variant px-4 py-3">
         <h2 className="flex items-center gap-2 font-mono text-code-md uppercase tracking-wider text-on-surface-variant">
           <Icon name="healing" className="text-[18px] text-tertiary" /> Incidents
@@ -69,7 +69,7 @@ function IncidentRow({ incident: i, onOpen }) {
         <span className="font-mono text-code-md text-primary" title={i.startedAt}>
           {utcStamp(i.startedAt)}
         </span>
-        <span className="font-mono text-code-sm text-on-surface-variant">{i.alertName}</span>
+        <span className="font-mono text-code-sm text-on-surface-variant">{isManual(i) ? 'Manual rollback' : i.alertName}</span>
         <StatusBadge status={badge} className="ml-auto" />
       </div>
       <p className="text-body-md">

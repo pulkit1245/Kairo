@@ -10,6 +10,11 @@ const ALERT_TITLE = {
   KairoHighLatency: 'Slow answers',
 };
 
+// a person's rollback from the release list (FR-61): Kairo records it as an
+// incident of its own, with no alert behind it
+export const MANUAL_ROLLBACK = 'ManualRollback';
+export const isManual = (incident) => incident.alertName === MANUAL_ROLLBACK;
+
 const DONE = {
   RESTART: 'pod restarted',
   ROLLBACK: 'rolled back',
@@ -17,8 +22,20 @@ const DONE = {
   SCALE_DOWN: 'scaled down',
 };
 
+// what kind of incident, in a few lower-case words, for the Apps list's
+// "Last incident: crash loop, 2 min ago"
+export function incidentKind(incident) {
+  if (isManual(incident)) return 'manual rollback';
+  const title = ALERT_TITLE[incident.alertName];
+  return title ? title.toLowerCase() : incident.alertName;
+}
+
 // the first action that ran decides the title, e.g. "Crash loop, rolled back"
 export function incidentTitle(incident) {
+  if (isManual(incident)) {
+    const to = incident.attempts[0]?.toSha;
+    return to ? `Manual rollback to ${shortSha(to)}` : 'Manual rollback';
+  }
   const alert = ALERT_TITLE[incident.alertName] ?? incident.alertName;
   const acted = incident.attempts.find((a) => a.result !== 'SKIPPED' && a.result !== 'FAILED' && DONE[a.action]);
   if (acted) return `${alert}, ${DONE[acted.action]}`;
@@ -52,6 +69,10 @@ export function actionDetail(attempt, incident) {
     case 'ROLLBACK': {
       const from = attempt.fromSource === 'TEST' ? 'the Break It release' : attempt.fromSha ? shortSha(attempt.fromSha) : null;
       const to = attempt.toSha ? `${shortSha(attempt.toSha)}, ` : '';
+      if (attempt.trigger === 'MANUAL') {
+        const picked = attempt.toSha ? shortSha(attempt.toSha) : 'the release';
+        return `Kairo rolled back${from ? ` from ${from}` : ''} to ${picked}, picked from the release list.`;
+      }
       return from
         ? `Kairo rolled back from ${from} to ${to}the last release marked healthy.`
         : `Kairo rolled back to ${to}the last release marked healthy.`;

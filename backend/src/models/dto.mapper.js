@@ -77,7 +77,10 @@ function prDto(app) {
  *          attentionReason, traffic: Send Traffic's current or last run,
  *          incidents: Incident DTOs }
  */
-export function toAppDto(row, { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [] }) {
+export function toAppDto(
+  row,
+  { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [], tunnel = null, rollbackBlocked = () => 'not offered' },
+) {
   const run = row.pipelineRuns?.[0] ?? null;
   const release = (r) => ({
     id: r.id,
@@ -91,6 +94,9 @@ export function toAppDto(row, { graceMs, storedImages, attentionReason = null, t
     graceEndsAt: iso(new Date(r.deployedAt.getTime() + graceMs)),
     // FR-38: pruned images can't be rolled back to (FR-50)
     imageStored: storedImages.has(r.imageRef),
+    // FR-61: "Roll back to this" is offered on earlier healthy releases whose
+    // image is stored; null when it can run now, else why not (e.g. a grace window)
+    rollbackBlockedBy: rollbackBlocked(r),
   });
   const active = row.releases.find((r) => r.status === 'ACTIVE');
   return {
@@ -107,6 +113,8 @@ export function toAppDto(row, { graceMs, storedImages, attentionReason = null, t
     autoHeal: row.autoHeal,
     replicas: row.replicas,
     publicUrl: row.publicUrl,
+    // FR-40: 'starting' | 'up' | 'restarting', null without a tunnel
+    tunnel,
     pipeline: run
       ? { id: run.id, status: run.status, failedStep: run.failedStep, startedAt: iso(run.startedAt), finishedAt: iso(run.finishedAt) }
       : null,
@@ -118,6 +126,49 @@ export function toAppDto(row, { graceMs, storedImages, attentionReason = null, t
     traffic,
     // the app's latest incidents, newest first (P3b), as GET /api/incidents
     incidents,
+  };
+}
+
+/**
+ * One card on the Apps list (Stitch 06).
+ * row: an App with `releases` (the ACTIVE one), `pipelineRuns` (the latest)
+ *      and `incidents` (the latest)
+ * extra: { attentionReason, tunnel, now: appSnapshot() or null }
+ */
+export function toAppSummaryDto(row, { attentionReason = null, tunnel = null, now = null }) {
+  const run = row.pipelineRuns?.[0] ?? null;
+  const active = row.releases?.[0] ?? null;
+  const incident = row.incidents?.[0] ?? null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    repoFullName: row.repoFullName,
+    stack: row.stack,
+    health: row.health,
+    attentionReason,
+    autoHeal: row.autoHeal,
+    replicas: row.replicas,
+    publicUrl: row.publicUrl,
+    tunnel,
+    pipeline: run
+      ? { id: run.id, status: run.status, failedStep: run.failedStep, startedAt: iso(run.startedAt), finishedAt: iso(run.finishedAt) }
+      : null,
+    release: active
+      ? { id: active.id, commitSha: active.commitSha, commitMessage: active.commitMessage, source: active.source, deployedAt: iso(active.deployedAt) }
+      : null,
+    // open incidents, for the sidebar's badge (P4 UI notes)
+    openIncidents: row._count?.incidents ?? 0,
+    lastIncident: incident
+      ? {
+          id: incident.id,
+          alertName: incident.alertName,
+          cause: incident.cause,
+          status: incident.status,
+          startedAt: iso(incident.startedAt),
+          recoverySeconds: incident.recoverySeconds,
+        }
+      : null,
+    now,
   };
 }
 
@@ -139,6 +190,8 @@ export function toIncidentDto(row) {
     resolvedAt: iso(row.resolvedAt),
     recoverySeconds: row.recoverySeconds,
     githubIssueNumber: row.githubIssueNumber,
+    // FR-55: the app's Kairo issue this incident opened or commented on
+    githubIssueUrl: row.githubIssueNumber && row.app.repoFullName ? `https://github.com/${row.app.repoFullName}/issues/${row.githubIssueNumber}` : null,
     attempts: [...(row.attempts ?? [])]
       .sort((a, b) => a.attemptedAt - b.attemptedAt)
       .map((a) => ({

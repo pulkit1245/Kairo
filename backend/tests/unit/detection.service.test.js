@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { detectStack, nodeVersion } from '../../src/generator/detection/detection.service.js';
+import { detectStack, dockerfilePort, nodeVersion } from '../../src/generator/detection/detection.service.js';
 
 let dir;
 
@@ -153,7 +153,7 @@ describe('Node facts and their sources (FR-12, FR-13, FR-15)', () => {
       assert.ok(['rule', 'default'].includes(f.source), name);
       assert.ok(f.from, name);
     }
-    assert.deepEqual(r.facts.port, { value: 3000, source: 'default', from: 'injected as $PORT (FR-16)' });
+    assert.deepEqual(r.facts.port, { value: 3000, source: 'default', from: 'injected as $PORT' });
   });
 
   it('flags a repo with both package.json and requirements.txt', async () => {
@@ -186,8 +186,56 @@ describe('existing Dockerfile (FR-11, FR-25)', () => {
     const r = await detectStack(dir);
     assert.equal(r.stack, null);
     assert.equal(r.port, 3000);
-    assert.match(r.assumptions[0], /listens on \$PORT \(3000\)/);
+    assert.match(r.assumptions[0], /no EXPOSE \(or PORT\) Kairo could read, so Kairo assumed port 3000/);
   });
+
+  it("takes the port from the kept Dockerfile's EXPOSE (kairo-dockerfile-sample)", async () => {
+    await put('Dockerfile', 'FROM node:22-alpine\nWORKDIR /app\nCOPY . .\nENV PORT=8080\nEXPOSE 8080\nCMD ["node", "server.js"]\n');
+    await put('package.json', JSON.stringify({ scripts: { start: 'node server.js' } }));
+    const r = await detectStack(dir);
+    assert.equal(r.stack, 'NODE');
+    assert.equal(r.port, 8080);
+    assert.deepEqual(r.facts.port, { value: 8080, source: 'rule', from: 'EXPOSE 8080 in the Dockerfile' });
+    assert.ok(!r.assumptions.some((a) => /listens on \$PORT/.test(a)), 'no default-port assumption left');
+  });
+
+  it('a Python repo with a kept Dockerfile uses its port too, not 8000', async () => {
+    await put('Dockerfile', 'FROM python:3.12-slim\nARG APP_PORT=5050\nEXPOSE ${APP_PORT}\n');
+    await put('requirements.txt', 'flask\n');
+    await put('app.py', 'from flask import Flask\napp = Flask(__name__)\n');
+    const r = await detectStack(dir);
+    assert.equal(r.port, 5050);
+    assert.equal(r.facts.port.from, 'EXPOSE ${APP_PORT} in the Dockerfile');
+  });
+
+  it('falls back to the stack default, said as an assumption, when the port is unreadable', async () => {
+    await put('Dockerfile', 'FROM node:22\nEXPOSE $PORT\n');
+    await put('package.json', '{}');
+    const r = await detectStack(dir);
+    assert.equal(r.port, 3000);
+    assert.equal(r.facts.port.source, 'default');
+    assert.match(r.assumptions.join(' '), /no EXPOSE \(or PORT\) Kairo could read, so Kairo assumed port 3000 and injects PORT=3000/);
+  });
+});
+
+describe('dockerfilePort()', () => {
+  const cases = [
+    ['FROM n\nEXPOSE 8080\n', 8080],
+    ['FROM n AS build\nEXPOSE 3000\nFROM n\nEXPOSE 9000/tcp 9100\n', 9000],
+    ['FROM n\nARG P=5050\nEXPOSE ${P}\n', 5050],
+    ['FROM n\nEXPOSE ${P:-6060}\n', 6060],
+    ['FROM n\nENV PORT 7000\n', 7000],
+    ['FROM n\nENV A=1 PORT=7100\n', 7100],
+    ['FROM n\nEXPOSE \\\n  4321\n', 4321],
+    ['FROM n\nEXPOSE 53/udp\n', null],
+    ['FROM n\n# EXPOSE 1234\n', null],
+    ['FROM n\nEXPOSE $PORT\n', null],
+    ['FROM n\nEXPOSE 99999\n', null],
+    ['FROM n AS build\nEXPOSE 3000\nFROM m\nCMD x\n', null],
+  ];
+  for (const [text, want] of cases) {
+    it(`${JSON.stringify(text)} -> ${want}`, () => assert.equal(dockerfilePort(text)?.port ?? null, want));
+  }
 });
 
 describe('nodeVersion(engines.node)', () => {

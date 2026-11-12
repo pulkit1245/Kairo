@@ -7,13 +7,20 @@ export const PR_TITLE = 'Set up Kairo: Dockerfile, Kubernetes, CI and alert rule
 // lets Kairo recognise its own PR body
 export const PR_MARKER = '<!-- kairo:setup -->';
 
+// FR-15: where each fact came from
+const SOURCE_LABELS = { rule: 'rule', default: 'default', gemini: 'Gemini' };
+
 const FACT_LABELS = {
   stack: 'Stack',
   dockerfile: 'Dockerfile',
   packageManager: 'Package manager',
   nodeVersion: 'Node version',
   pythonVersion: 'Python version',
+  dependencies: 'Dependencies',
+  framework: 'Framework',
+  appEntry: 'App',
   buildScript: 'Build',
+  staticFiles: 'Static files',
   startCommand: 'Start command',
   testScript: 'Tests',
   port: 'Port',
@@ -48,7 +55,7 @@ export function prBody(p) {
   const facts = Object.entries(p.facts ?? {})
     .sort(([a], [b]) => rank(a) - rank(b))
     .map(
-    ([key, f]) => `| ${FACT_LABELS[key] ?? key} | ${code(f.value)} | ${f.source}: ${cell(f.from)} |`,
+    ([key, f]) => `| ${FACT_LABELS[key] ?? key} | ${code(f.value)} | ${SOURCE_LABELS[f.source] ?? f.source}: ${cell(f.from)} |`,
   );
 
   const lines = [

@@ -11,6 +11,7 @@ import {
   waitForRollout,
 } from '../kubernetes/k8s.client.js';
 import { startGrace } from '../shipping/grace.service.js';
+import { startTunnel } from '../tunnel/tunnel.service.js';
 import { pruneImages } from '../shipping/prune.service.js';
 import { beginRollout, endRollout } from '../state/rollout.state.js';
 import { IN_PROGRESS_STATUSES } from '../types/index.js';
@@ -20,7 +21,9 @@ import { createLogger } from '../utils/logger.js';
 import { cloneUrlFor } from '../utils/repoUrl.js';
 import { cloneRepo } from './clone/clone.service.js';
 import { buildImage } from './deploy/build.service.js';
-import { detectStack } from './detection/detection.service.js';
+import { explainBuildFailure } from '../gemini/explain.service.js';
+import { assertKnown, detectFacts } from './detection/detection.service.js';
+import { fillUnknownFacts } from './detection/fill.service.js';
 import { generateConfigs } from './template/config.service.js';
 
 const log = createLogger('pipeline');
@@ -31,9 +34,10 @@ export const READY_TIMEOUT_MS = 3 * 60 * 1000;
 // A step failure the run records as-is. logTail is extra lines (the build log)
 // stored after the reason.
 class StepError extends AppError {
-  constructor(message, logTail = []) {
+  constructor(message, logTail = [], explanation = null) {
     super(message);
     this.logTail = logTail;
+    this.explanation = explanation;
   }
 }
 
@@ -72,7 +76,10 @@ export async function runPipeline(runId) {
     step = 'DETECTING';
     await moveTo(runId, step, { commitSha });
     await prisma.app.update({ where: { id: app.id }, data: { defaultBranch: branch } });
-    const detected = await detectStack(dir);
+    const detected = await detectFacts(dir);
+    // FR-17: Gemini only for what the rules couldn't find, once per run
+    if (detected.unknown.length) await fillUnknownFacts(dir, detected, { commitSha });
+    assertKnown(detected);
     log.info(`${app.slug}: looks like ${detected.stack ?? 'an unknown stack'}${detected.existingDockerfile ? ', keeping its Dockerfile' : ''}`);
 
     step = 'GENERATING';
@@ -105,7 +112,16 @@ export async function runPipeline(runId) {
     if (!kept) await writeFile(dockerfile, byKind.DOCKERFILE.content);
     await rm(path.join(dir, '.git'), { recursive: true, force: true });
     const build = await buildImage({ contextDir: dir, dockerfile, tag: imageRef });
-    if (!build.ok) throw new StepError(build.reason, build.logTail);
+    if (!build.ok) {
+      // FR-28: the run ends FAILED with the log tail and Gemini's reading of it
+      const explanation = await explainBuildFailure({
+        commitSha,
+        stack: detected.stack,
+        reason: build.reason,
+        logTail: build.logTail,
+      });
+      throw new StepError(build.reason, build.logTail, explanation);
+    }
     log.info(`${app.slug}: built ${imageRef.slice(0, imageRef.indexOf(':') + 8)}`);
 
     step = 'DEPLOYING';
@@ -142,6 +158,8 @@ export async function runPipeline(runId) {
 
     await moveTo(runId, 'RUNNING', { finishedAt: new Date() });
     log.info(`${app.slug}: RUNNING in ${Math.round((Date.now() - started) / 1000)} s`);
+    // FR-40: the public link, in the background (an app that already has one keeps it)
+    startTunnel(app);
   } catch (err) {
     const known = err instanceof AppError;
     const reason = known ? err.message : `Unexpected error: ${k8sErrorMessage(err)}`;
@@ -154,6 +172,7 @@ export async function runPipeline(runId) {
     await moveTo(runId, 'FAILED', {
       failedStep: step,
       errorLog: toErrorLog(reason, err.logTail),
+      explanation: err.explanation ?? null,
       finishedAt: new Date(),
     });
   } finally {

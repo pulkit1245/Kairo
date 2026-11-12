@@ -2,6 +2,7 @@ import { prisma } from '../../db/index.js';
 import { actionTookEffect, k8sErrorMessage } from '../../kubernetes/k8s.client.js';
 import { errorMessage } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
+import { reportAttention } from '../issue/issue.service.js';
 import * as state from './healing.state.js';
 import { setAppHealth } from './health.service.js';
 
@@ -30,7 +31,9 @@ export const POLL_MS = 3000;
  * @param {number} [p.token]          heal()'s claim on the app
  * @returns {Promise<{ result: 'VERIFIED' | 'UNVERIFIED', detail?: string }>}
  */
-export async function verifyAction(p, deps = { check: actionTookEffect, db: prisma, pollMs: POLL_MS, verifyMs: VERIFY_MS }) {
+const DEFAULT_DEPS = { check: actionTookEffect, db: prisma, pollMs: POLL_MS, verifyMs: VERIFY_MS, onAttention: reportAttention };
+
+export async function verifyAction(p, deps = DEFAULT_DEPS) {
   const { slug, namespace, action, expect, attemptId, attentionAfter } = p;
   const deadline = (p.startedAt ?? Date.now()) + deps.verifyMs;
   // heal() claimed the app before acting; a resumed check claims it here
@@ -53,10 +56,13 @@ export async function verifyAction(p, deps = { check: actionTookEffect, db: pris
   const result = verdict.done ? 'VERIFIED' : 'UNVERIFIED';
   const seconds = Math.round(deps.verifyMs / 1000);
   const reason = verdict.done ? null : `not confirmed within ${seconds} s: ${verdict.detail}`;
+  let attention = null;
   if (!verdict.done) {
     log.warn(`${slug}: ${action} not confirmed within ${seconds} s (${verdict.detail}): UNVERIFIED`);
-    setAppHealth(slug, 'NEEDS_ATTENTION', `the ${action.toLowerCase().replace('_', ' ')} wasn't confirmed within ${seconds} s (${verdict.detail})`);
+    attention = `the ${action.toLowerCase().replace('_', ' ')} wasn't confirmed within ${seconds} s (${verdict.detail})`;
+    setAppHealth(slug, 'NEEDS_ATTENTION', attention);
   } else {
+    attention = attentionAfter ?? null;
     log.info(`${slug}: ${action} VERIFIED`);
     setAppHealth(slug, attentionAfter ? 'NEEDS_ATTENTION' : 'HEALTHY', attentionAfter ?? null);
   }
@@ -72,6 +78,8 @@ export async function verifyAction(p, deps = { check: actionTookEffect, db: pris
         await new Promise((r) => setTimeout(r, 1000));
         await deps.db.remediationAttempt.update({ where: { id }, data }).catch(() => {});
       });
+    // FR-55, FR-73: stopping opens (or comments on) the app's GitHub issue
+    if (attention) deps.onAttention?.(id, attention)?.catch?.(() => {});
   }
   return { result, detail: verdict.done ? undefined : verdict.detail };
 }

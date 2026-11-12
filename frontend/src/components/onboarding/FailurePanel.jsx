@@ -9,7 +9,7 @@ const TITLE = {
 };
 
 // FR-8: a failed step shows its reason and, for builds, the last log lines
-// (FR-28). Gemini's explanation joins in P4.
+// and Gemini's reading of them (FR-28), when Gemini answered.
 export function FailurePanel({ run, onRetry, retrying }) {
   return (
     <section className="rounded border border-error/60 bg-error-container/15 p-4" aria-labelledby="failure-title">
@@ -24,6 +24,16 @@ export function FailurePanel({ run, onRetry, retrying }) {
           <p className="mt-1 text-body-lg">{run.failureReason}</p>
         </div>
       </div>
+
+      {run.explanation && (
+        <div className="mt-4 rounded border border-outline-variant bg-surface-container px-4 py-3">
+          <h3 className="flex items-center gap-2 text-body-lg font-semibold">
+            <Icon name="auto_awesome" className="text-[18px] text-primary" /> What went wrong
+            <span className="font-mono text-code-sm font-normal text-on-surface-variant">explained by Gemini</span>
+          </h3>
+          <p className="mt-1 text-body-lg">{run.explanation}</p>
+        </div>
+      )}
 
       {run.logTail.length > 0 && (
         <div className="mt-4">

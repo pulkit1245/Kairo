@@ -1,25 +1,25 @@
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../../utils/AppError.js';
+import { applyPythonStart, detectPython, PYTHON_PORT } from './python.detection.js';
 
-// Stack detection (FR-11 to FR-16). Rules only for now; Gemini fills facts the
-// rules leave unknown in P4 (FR-17).
+// Stack detection (FR-11 to FR-16). Rules first; a fact they can't find (the
+// start file, so far) is listed in `unknown` for Gemini to fill (FR-17,
+// fill.service.js). Python's rules are in python.detection.js.
 //
 // Rule order (FR-11): an existing Dockerfile is kept, then package.json means
-// Node, then requirements.txt means Python. A kept Dockerfile still reads the
+// Node, then requirements.txt or pyproject.toml means Python. A kept Dockerfile still reads the
 // manifests, because the workflow's test step needs the Node facts.
 //
 // Every fact records where it came from (FR-15), shown in the onboarding view
 // and the PR:
-//   { value, source: 'rule' | 'default', from: 'package-lock.json' }
+//   { value, source: 'rule' | 'default' | 'gemini', from: 'package-lock.json' }
 
 export const NODE_PORT = 3000;
-export const PYTHON_PORT = 8000;
+export { PYTHON_PORT };
 export const DEFAULT_NODE_VERSION = 22;
 // majors with an official node:<n>-slim image Kairo will use
 export const NODE_VERSIONS = [18, 20, 22, 24];
-const PYTHON_VERSION = '3.12';
-const PYTHON_ENTRYPOINTS = ['main.py', 'app.py', 'server.py'];
 const NODE_ENTRYPOINTS = ['index.js', 'server.js'];
 
 // what `npm init` writes; it isn't a real test script (FR-13)
@@ -44,15 +44,21 @@ const byDefault = (value, from) => ({ value, source: 'default', from });
  *   node: null | { version: number, packageManager: 'npm'|'yarn'|'pnpm', corepack: boolean,
  *                  installCommand: string, ciInstallCommand: string, buildCommand: string|null,
  *                  pruneCommand: string|null, testCommand: string|null },
- *   python: null | { version: string },
- *   facts: Record<string, { value: any, source: 'rule'|'default', from: string }>,
+ *   python: null | { version: string, framework: 'DJANGO'|'FASTAPI'|'FLASK'|null,
+ *                    install: 'requirements'|'requirements-after-copy'|'project'|'packages',
+ *                    packages: string[], serverPackage: string|null, collectstatic: boolean },
+ *   facts: Record<string, { value: any, source: 'rule'|'default'|'gemini', from: string }>,
  *   assumptions: string[],
+ *   unknown: Array<{ fact: string, ask: string, reason: string, hint: string }>,
  * }>}
+ *   unknown: facts the rules couldn't find, for Gemini (FR-17). reason is the
+ *   failure if nobody fills them
  */
-export async function detectStack(dir) {
+export async function detectFacts(dir) {
   const has = (f) => exists(dir, f);
   const facts = {};
   const assumptions = [];
+  const unknown = [];
 
   let existingDockerfile = null;
   if (await has('Dockerfile')) {
@@ -61,39 +67,158 @@ export async function detectStack(dir) {
   }
 
   const hasNode = await has('package.json');
-  const hasPython = await has('requirements.txt');
+  const hasPython = (await has('requirements.txt')) || (await has('pyproject.toml'));
 
   if (hasNode) {
     if (hasPython) {
       // PRD section 8: pick Node, record the guess, flag it in the PR
-      assumptions.push('The repo has both package.json and requirements.txt; Kairo treated it as a Node.js app.');
+      const manifest = (await has('requirements.txt')) ? 'requirements.txt' : 'pyproject.toml';
+      assumptions.push(`The repo has both package.json and ${manifest}; Kairo treated it as a Node.js app.`);
     }
-    const node = await detectNode(dir, facts, assumptions, { needStart: !existingDockerfile });
-    return result('NODE', NODE_PORT, node.startCommand, { existingDockerfile, node: node.node, facts, assumptions });
+    const node = await detectNode(dir, facts, assumptions, unknown, { needStart: !existingDockerfile });
+    return keptPort(result('NODE', NODE_PORT, node.startCommand, { existingDockerfile, node: node.node, facts, assumptions, unknown }));
   }
 
   if (hasPython) {
-    const py = await detectPython(dir, facts, assumptions, { needStart: !existingDockerfile });
-    return result('PYTHON', PYTHON_PORT, py.startCommand, { existingDockerfile, python: py.python, facts, assumptions });
+    const py = await detectPython(dir, facts, assumptions, unknown, { needStart: !existingDockerfile });
+    return keptPort(result('PYTHON', PYTHON_PORT, py.startCommand, { existingDockerfile, python: py.python, facts, assumptions, unknown }));
   }
 
   if (existingDockerfile) {
-    facts.stack = byDefault('unknown', 'no package.json or requirements.txt');
-    facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');
-    assumptions.push(`The Dockerfile's app listens on $PORT (${NODE_PORT}) on 0.0.0.0; Kairo injects PORT and can't read it from the Dockerfile.`);
-    return result(null, NODE_PORT, null, { existingDockerfile, facts, assumptions });
+    facts.stack = byDefault('unknown', 'no package.json, requirements.txt or pyproject.toml');
+    facts.port = byDefault(NODE_PORT, 'injected as $PORT');
+    return keptPort(result(null, NODE_PORT, null, { existingDockerfile, facts, assumptions, unknown }));
   }
 
   throw new AppError(
-    'Unsupported stack: expected a Dockerfile, package.json (Node) or requirements.txt (Python) in the repo root',
+    'Unsupported stack: expected a Dockerfile, package.json (Node), or requirements.txt or pyproject.toml (Python) in the repo root',
   );
 }
 
-function result(stack, port, startCommand, rest) {
-  return { stack, port, startCommand, existingDockerfile: null, node: null, python: null, ...rest };
+// A kept Dockerfile decides the port: the app inside runs the way the
+// Dockerfile says, not the way Kairo's own templates would (FR-25). Its port
+// replaces the stack's default, and Kairo injects the same value as PORT, so
+// an app that reads $PORT and one that doesn't both line up with the probes.
+// Without a readable port the stack default stays, as an assumption.
+function keptPort(detected) {
+  if (!detected.existingDockerfile) return detected;
+  const { facts, assumptions } = detected;
+  // the default's "listens on $PORT" line no longer applies either way
+  const drop = (a) => /listens on \$PORT/.test(a);
+  for (let i = assumptions.length - 1; i >= 0; i--) if (drop(assumptions[i])) assumptions.splice(i, 1);
+  const found = dockerfilePort(detected.existingDockerfile);
+  if (found) {
+    facts.port = rule(found.port, `${found.from} in the Dockerfile`);
+    return { ...detected, port: found.port };
+  }
+  assumptions.push(
+    `The Dockerfile has no EXPOSE (or PORT) Kairo could read, so Kairo assumed port ${detected.port} and injects PORT=${detected.port}; the app must listen on it, on 0.0.0.0.`,
+  );
+  return detected;
 }
 
-async function detectNode(dir, facts, assumptions, { needStart }) {
+/**
+ * The port a Dockerfile's final stage declares: the first EXPOSE port (tcp),
+ * resolving $VAR / ${VAR} from that stage's ENV and ARG defaults, else
+ * ENV/ARG PORT. null when there's none it can read.
+ * @returns {{ port: number, from: string } | null}
+ */
+export function dockerfilePort(text) {
+  // join continuation lines, drop comments and blank lines
+  const lines = text
+    .replace(/\\\r?\n/g, ' ')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  // only the final stage runs
+  const lastFrom = lines.findLastIndex((l) => /^FROM\s/i.test(l));
+  const stage = lines.slice(lastFrom + 1);
+  const vars = {};
+  let expose = null;
+  for (const l of stage) {
+    const m = l.match(/^(ENV|ARG)\s+(.+)$/i);
+    if (m) {
+      const body = m[2].trim();
+      // ENV KEY=value KEY2=value, or the old ENV KEY value
+      if (/^[A-Za-z_]\w*=/.test(body)) {
+        for (const [, k, v] of body.matchAll(/([A-Za-z_]\w*)=("[^"]*"|'[^']*'|\S*)/g)) vars[k] = v.replace(/^["']|["']$/g, '');
+      } else {
+        const [k, ...v] = body.split(/\s+/);
+        if (v.length) vars[k] = v.join(' ');
+      }
+      continue;
+    }
+    const e = l.match(/^EXPOSE\s+(.+)$/i);
+    if (e && expose === null) expose = e[1].trim().split(/\s+/);
+  }
+  const asPort = (raw) => {
+    const value = String(raw ?? '').replace(/^\$\{?(\w+)(?::-([^}]*))?\}?$/, (_, name, dflt) => vars[name] ?? dflt ?? '');
+    const m = value.match(/^(\d{1,5})(?:\/(tcp|udp))?$/i);
+    if (!m || (m[2] && m[2].toLowerCase() === 'udp')) return null;
+    const n = Number(m[1]);
+    return n > 0 && n < 65536 ? n : null;
+  };
+  for (const raw of expose ?? []) {
+    const port = asPort(raw);
+    if (port) return { port, from: `EXPOSE ${raw}` };
+  }
+  const envPort = asPort(vars.PORT);
+  if (envPort) return { port: envPort, from: `PORT=${envPort}` };
+  return null;
+}
+
+function result(stack, port, startCommand, rest) {
+  return { stack, port, startCommand, existingDockerfile: null, node: null, python: null, unknown: [], ...rest };
+}
+
+// Rules only: fails on any fact left unknown. The pipeline calls detectFacts,
+// lets Gemini fill what it can, then assertKnown
+export async function detectStack(dir) {
+  return assertKnown(await detectFacts(dir));
+}
+
+// the first fact still unknown fails detection with the rule's reason
+export function assertKnown(detected) {
+  if (detected.unknown.length) throw new AppError(detected.unknown[0].reason);
+  return detected;
+}
+
+/**
+ * Gemini's answer for an unknown fact (fill.service.js), checked against the
+ * repo before it is used (FR-19). On success the fact is filled with source
+ * 'gemini' and taken off `unknown`.
+ * @param {{ startFile?: string, appVariable?: string }} answer
+ * @param {string} why Gemini's one-line reason, shown as where the fact came from
+ * @returns {Promise<string|null>} null when used, else why it was dropped
+ */
+export async function applyGeminiFact(dir, detected, item, answer, why) {
+  const file = await repoFile(dir, answer.startFile);
+  if (!file.ok) return file.why;
+  let dropped;
+  if (item.ask === 'NODE_START_FILE') {
+    if (!/\.(c|m)?js$/.test(file.rel)) return `${file.rel} isn't a .js file Node can run`;
+    detected.startCommand = ['node', file.rel];
+    detected.facts.startCommand = { value: `node ${file.rel}`, source: 'gemini', from: why };
+    detected.assumptions.push(`Gemini picked ${file.rel} as the start file: ${why}`);
+  } else {
+    dropped = await applyPythonStart(dir, detected, item, file.rel, answer.appVariable, why);
+    if (dropped) return dropped;
+  }
+  detected.unknown = detected.unknown.filter((u) => u !== item);
+  return null;
+}
+
+// a path Gemini named: relative, inside the clone, an existing file
+async function repoFile(dir, rel) {
+  if (typeof rel !== 'string' || !rel.trim()) return { ok: false, why: 'no file given' };
+  const clean = path.posix.normalize(rel.trim().replace(/^\.\//, ''));
+  if (path.posix.isAbsolute(clean) || clean.startsWith('..')) return { ok: false, why: `${rel} is outside the repo` };
+  const info = await stat(path.join(dir, clean)).catch(() => null);
+  if (!info?.isFile()) return { ok: false, why: `${clean} isn't a file in the repo` };
+  return { ok: true, rel: clean };
+}
+
+async function detectNode(dir, facts, assumptions, unknown, { needStart }) {
   let pkg;
   try {
     pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
@@ -167,10 +292,17 @@ async function detectNode(dir, facts, assumptions, { needStart }) {
   }
   if (!startCommand && needStart) {
     const main = pkg.main ? `a "main" field (${pkg.main}) that isn't in the repo` : 'no "main" field';
-    throw new AppError(`Node project has no "start" script, ${main}, and no index.js or server.js`);
+    unknown.push({
+      fact: 'startCommand',
+      ask: 'NODE_START_FILE',
+      reason: `Node project has no "start" script, ${main}, and no index.js or server.js`,
+      hint: pkg.main
+        ? `package.json has no scripts.start, and its "main" is "${pkg.main}", which isn't in the repo.`
+        : 'package.json has no scripts.start and no "main", and there is no index.js or server.js in the root.',
+    });
   }
 
-  facts.port = byDefault(NODE_PORT, 'injected as $PORT (FR-16)');
+  facts.port = byDefault(NODE_PORT, 'injected as $PORT');
   assumptions.push(`The app listens on $PORT (${NODE_PORT}) on 0.0.0.0.`);
 
   const install = installCommands(packageManager, { lockfile, yarnBerry, withDev: Boolean(buildCommand) });
@@ -251,26 +383,6 @@ export function nodeVersion(range) {
     why: `engines.node "${r}" has no version Kairo builds with`,
     note: `engines.node is "${r}"; Kairo used Node ${DEFAULT_NODE_VERSION}.`,
   };
-}
-
-// Python stays as in P1 until P4 adds frameworks (FR-14)
-async function detectPython(dir, facts, assumptions, { needStart }) {
-  facts.stack = rule('Python', 'requirements.txt');
-  facts.pythonVersion = byDefault(PYTHON_VERSION, 'no version file read yet (P4)');
-  let startCommand = null;
-  for (const file of PYTHON_ENTRYPOINTS) {
-    if (await exists(dir, file)) {
-      startCommand = ['python', file];
-      facts.startCommand = rule(`python ${file}`, `${file} in the repo root`);
-      break;
-    }
-  }
-  if (!startCommand && needStart) {
-    throw new AppError(`Python project needs one of ${PYTHON_ENTRYPOINTS.join(', ')} in the repo root`);
-  }
-  facts.port = byDefault(PYTHON_PORT, 'injected as $PORT (FR-16)');
-  assumptions.push(`The app listens on $PORT (${PYTHON_PORT}) on 0.0.0.0.`);
-  return { startCommand, python: { version: PYTHON_VERSION } };
 }
 
 async function exists(dir, file) {

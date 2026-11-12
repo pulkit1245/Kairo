@@ -7,9 +7,9 @@ import { env } from '../config/env.config.js';
 
 const TIMEOUT_MS = 5000;
 
-async function call(path, params) {
+async function call(path, params, timeoutMs = TIMEOUT_MS) {
   const res = await fetch(`${env.prometheusUrl}${path}?${new URLSearchParams(params)}`, {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || body?.status !== 'success') {
@@ -22,11 +22,19 @@ async function call(path, params) {
  * An instant query that returns one number (a scalar, or the first sample of
  * a vector). null when the vector is empty, e.g. no traffic yet.
  */
-export async function queryNumber(expr) {
-  const data = await call('/api/v1/query', { query: expr });
+export async function queryNumber(expr, { timeoutMs } = {}) {
+  const data = await call('/api/v1/query', { query: expr }, timeoutMs);
   if (data.resultType === 'scalar') return sample(data.result[1]);
   const first = data.result[0];
   return first ? sample(first.value[1]) : null;
+}
+
+/**
+ * An instant query that returns several series: [{ labels, value }].
+ */
+export async function queryVector(expr, { timeoutMs } = {}) {
+  const data = await call('/api/v1/query', { query: expr }, timeoutMs);
+  return data.result.map((r) => ({ labels: r.metric, value: sample(r.value[1]) }));
 }
 
 // a sample value; NaN (e.g. 0 errors / 0 requests) and Inf become null

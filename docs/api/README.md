@@ -78,6 +78,46 @@ Starts onboarding from a picked repo (FR-3). Body `{ "repoFullName": "owner/repo
 | `502` | GitHub didn't answer |
 | `503` | The cluster can't be reached, so the limit can't be checked |
 
+## GET /api/apps
+
+The Apps list (since P4, Stitch 06): every app that isn't deleted, running apps first. An app whose onboarding failed is listed too, with no `release` and its run's `failedStep`.
+
+```json
+{
+  "apps": [
+    {
+      "id": "…",
+      "slug": "kairo-node-sample",
+      "repoFullName": "PunitXd/kairo-node-sample",
+      "stack": "NODE",
+      "health": "HEALTHY",
+      "attentionReason": null,
+      "autoHeal": true,
+      "replicas": 1,
+      "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
+      "tunnel": "up",
+      "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
+      "release": { "id": "…", "commitSha": "…", "commitMessage": "docs: rollout test 2", "source": "GHCR", "deployedAt": "…" },
+      "openIncidents": 0,
+      "lastIncident": { "id": "…", "alertName": "KairoHighCpu", "cause": "…", "status": "RESOLVED", "startedAt": "…", "recoverySeconds": 45 },
+      "now": { "rps": 0, "cpuCores": 0.001, "cpuShare": 0.002, "memoryBytes": 44040192, "memoryLimitBytes": 268435456, "replicasReady": 1, "replicasDesired": 1, "unavailable": false }
+    }
+  ],
+  "running": 2,
+  "maxRunning": 3,
+  "cluster": { "cpuCores": 0.5, "cpuTotal": 4, "memoryBytes": 3023646720, "memoryTotalBytes": 5034045440 }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `release` | The `ACTIVE` release, or `null` when nothing is deployed |
+| `now` | One instant Prometheus query per number; `null` for an app with no release. A number is `null` when its query failed or has no data; `unavailable` is `true` when every query failed |
+| `now.cpuShare` | CPU of all pods as a share of what the ready pods may use (0.5 core each) |
+| `running` | Apps with an `ACTIVE` release; `maxRunning` is the limit (FR-9) |
+| `openIncidents` | The app's incidents still `OPEN`, for the sidebar's badge (since P4) |
+| `cluster` | The sidebar's cluster card (since P4): the node's CPU in cores and memory in bytes in use, against what Kubernetes can give pods (`kube_node_status_allocatable`). Three Prometheus queries run at once with a 2 s timeout, alongside the list; each value is `null` when its query failed or timed out, and the apps are returned either way |
+
 ## GET /api/apps/:slug
 
 The app page (since P2c): header, active release and the last 10 releases. 404 for an unknown or deleted app.
@@ -93,7 +133,8 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
   "health": "HEALTHY",
   "autoHeal": true,
   "replicas": 1,
-  "publicUrl": null,
+  "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
+  "tunnel": "up",
   "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
   "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true },
   "releases": [ "…same shape, newest first…" ],
@@ -105,9 +146,12 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | Field | Meaning |
 | --- | --- |
 | `release` | The `ACTIVE` release, or `null` |
+| `publicUrl` | The app's public link (FR-40): a Cloudflare quick tunnel to Traefik, saved once it connects and its name resolves. `null` while it starts or restarts, and after a delete. It changes every time the tunnel restarts (FR-41) |
+| `tunnel` | `starting`, `up`, `restarting` (died, a new one within 30 s), or `null` (no tunnel: nothing deployed, or `TUNNELS_ENABLED=false`) |
 | `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
 | `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
+| `releases[].rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
@@ -181,11 +225,21 @@ Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes re
 
 400 for another `kind`; 409 during a rollout or grace window, with no running release, or when the broken release already runs.
 
+## POST /api/apps/:slug/rollback
+
+"Roll back to this" from the release list (FR-60, FR-61, since P4d). Body `{ "releaseId": "…" }`, an earlier release that was marked healthy and whose image is still stored. It takes the automatic rollback's path with trigger `MANUAL`: the image is set, the target's 60 s grace window starts, the app is `HEALING`, and the 90 s check runs in the background. It is allowed while the app is `NEEDS_ATTENTION` and with auto-heal off, and a verified one ends `NEEDS_ATTENTION`. It is recorded as its own incident (`alertName: "ManualRollback"`, cause "Rolled back by <login> from the release list"), resolved when the check ends, and reported on the app's GitHub issue like any rollback (FR-55). 202 once the rollback ran:
+
+```json
+{ "incidentId": "…", "note": "rolled back to 9c8a2b0", "attempt": { "action": "ROLLBACK", "trigger": "MANUAL", "result": "APPLIED", "fromReleaseId": "…", "toReleaseId": "…", "…": "…" } }
+```
+
+`attempt.result` is `FAILED` if Kubernetes refused the change. 400 without `releaseId`; 404 for an unknown app or release; 409 with the reason (the same text as `rollbackBlockedBy`) for the running release, a release never marked healthy or Break It's, a pruned image or one no longer on the laptop, `REMEDIATION_DRY_RUN`, and during a rollout, a grace window or another action's check.
+
 ## DELETE /api/apps/:slug
 
 Deletes the app (FR-65, Stitch 09). The body must name it: `{ "confirm": "kairo-node-sample" }`.
 
-Kairo deletes the app's namespace (its Deployment, Service, Ingress and pods go with it) and its key in the alert rules ConfigMap, stops its grace window, Send Traffic and healing, closes its open incidents (no recovery time), and sets `deletedAt`. Once the namespace is gone, it removes the app's images from the laptop. Releases, incidents and attempts are kept. GitHub is never touched: the repo, its PR, the files Kairo added, GHCR images and issues stay (FR-66). Adding the same repo again reuses the app, its slug and its history.
+Kairo deletes the app's namespace (its Deployment, Service, Ingress and pods go with it) and its key in the alert rules ConfigMap, stops its grace window, Send Traffic, its tunnel (the public link) and healing, closes its open incidents (no recovery time), and sets `deletedAt`. Once the namespace is gone, it removes the app's images from the laptop. Releases, incidents and attempts are kept. GitHub is never touched: the repo, its PR, the files Kairo added, GHCR images and issues stay (FR-66). Adding the same repo again reuses the app, its slug and its history.
 
 ```json
 { "slug": "kairo-node-sample", "namespace": "kairo-kairo-node-sample", "namespaceState": "deleting", "closedIncidents": 0, "imagesToRemove": 4, "deletedAt": "…" }
@@ -214,12 +268,20 @@ Try again when the setup PR couldn't be opened (AQ11). If the preview is healthy
 ## GET /api/health
 
 ```json
-{ "ok": true, "db": "up", "cluster": "up", "dryRun": false }
+{
+  "ok": true, "db": "up", "cluster": "up", "dryRun": false,
+  "gemini": { "state": "up", "model": "gemini-3.5-flash-lite", "detail": null, "at": "…" },
+  "prometheus": { "state": "up", "restarts": 0, "detail": null }
+}
 ```
 
 `db` and `cluster` are `"up"` or `"down"`. `ok` is always `true` when the API answers. `dryRun` is `true` when healing only records incidents and never touches pods (`REMEDIATION_DRY_RUN`). The frontend polls this every 10 s.
 
-**Changed in P1:** added `dryRun`.
+`gemini.state` is the last Gemini call's outcome: `up`, `down` (it failed, so Kairo used its defaults and rule-based causes), `off` (`GEMINI_ENABLED=false` or no key) or `unknown` (no call yet). `model` is the model that last answered, `detail` says why it is down or off, or which model stood in for a busy one, and `at` is when (FR-20).
+
+`prometheus` is the port-forward the backend keeps open to Prometheus (FR-57): `up` (its own forward answers), `external` (someone else's forward answers, e.g. `npm run prom:forward`), `starting`, `down` (kubectl ended; it is started again after 2 s, then up to 30 s apart; `detail` is kubectl's last error) or `off` (`PROMETHEUS_PORT_FORWARD=false`, or `PROMETHEUS_URL` isn't on this machine). `restarts` counts how often it was opened again.
+
+**Changed in P1:** added `dryRun`. **Changed in P4:** added `gemini` and `prometheus`.
 
 ## POST /api/deployments
 
@@ -299,13 +361,13 @@ A "deployment" is one pipeline run plus a few fields from its app.
 | `stack` | `NODE`, `PYTHON`, or `null` before detection or for a repo with only a Dockerfile |
 | `failureReason` | Readable reason when `FAILED`, one line. E.g. `Build failed (docker exited with code 1)` or `App didn't answer on $PORT (3000) within 3 minutes (CrashLoopBackOff)` |
 | `logTail` | When the build failed: its last 80 log lines (FR-28). Otherwise `[]` |
-| `explanation` | Gemini's explanation of a failure (P4), else `null` |
+| `explanation` | When the build failed: Gemini's plain-English reading of `logTail` (FR-28). `null` for other failures, or when Gemini is off or didn't answer |
 | `finishedAt` | `null` while the run is still going. Set when it ends, at `RUNNING` or `FAILED` |
 | `configs[].kind` | `DOCKERFILE`, `DEPLOYMENT`, `SERVICE`, `INGRESS`, `WORKFLOW` or `ALERT_RULES` |
 | `configs[].origin` | `GENERATED`, or `KEPT_EXISTING` when the repo already had the file (FR-25). A kept Dockerfile is built as it is and left out of the PR |
 | `pr.state` | `OPEN`, `MERGED`, `CLOSED`, `FAILED` (with `pr.error`), or `null` before Kairo has tried (FR-34, AQ11). On every deployment |
 | `pr.bot` | The account the PR comes from: the GitHub App's bot, `<app slug>[bot]` |
-| `facts` | Detail only. Each detected fact: `value`, `source` (`rule` = read from the repo, `default`) and `from` (FR-15) |
+| `facts` | Detail only. Each detected fact: `value`, `source` (`rule` = read from the repo, `gemini` = filled by Gemini and checked against the repo (FR-17 to FR-19), `default`) and `from` (FR-15). For a `gemini` fact, `from` is Gemini's one-line reason |
 | `assumptions` | Detail only. What Kairo assumed, also listed in the PR |
 | `release` | Detail only. The preview release this run produced: `healthyAt` is set once it passes its 60 s grace window (`graceEndsAt`) (FR-71, FR-72). `null` before `RUNNING` |
 
@@ -351,6 +413,7 @@ The latest 50 Incidents, newest first.
   "resolvedAt": "2026-11-10T10:48:56.000Z",
   "recoverySeconds": 23,
   "githubIssueNumber": null,
+  "githubIssueUrl": null,
   "attempts": [
     {
       "id": "cmwakhgb40003sa1y2c7pk1ad",
@@ -375,6 +438,8 @@ The latest 50 Incidents, newest first.
 | Field | Values |
 | --- | --- |
 | `status` | `OPEN`, `RESOLVED` |
+| `alertName` | One of the five Kairo alerts, another alert's name (recorded, no action), or `ManualRollback` for a rollback from the release list (since P4d) |
+| `githubIssueNumber`, `githubIssueUrl` | The app's Kairo issue (label `kairo`) this incident opened or commented on, or `null` (since P4d). An issue opens on a rollback or when Kairo stops acting (`NEEDS_ATTENTION`), never for a restart alone; while it is open, every later incident comments on it (FR-55). Only apps added through the GitHub App get issues |
 | `pod` | The pod the alert named (its `pod` label), or `null` for an app-level alert (since P3) |
 | `recoverySeconds` | Seconds from start to resolve, one decimal; `null` while open |
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |
@@ -403,6 +468,8 @@ One incident for the drawer (Stitch 08): the Incident above plus its app's memor
 ```
 
 `pods` has each of the app's pods (up to 6, the incident's own `pod` first) from 5 minutes before the alert to 3 minutes after it resolved, or now while it is open, so a restarted pod's replacement shows too. `error` is set when Prometheus didn't answer; Prometheus keeps one day of data, so older incidents have no points.
+
+`explanation` is Gemini's reading of the alert and the pod's last 50 log lines (redacted first), stored a few seconds after the incident opens (FR-53, P4). It stays `null` when Gemini is off or didn't answer; `cause` is always the rule-based one (FR-54).
 
 **Changed in P0:** removed `deploymentId` and `action`. Added `appId`, `explanation`, `githubIssueNumber` and `attempts`. `recoverySeconds` is now stored when the incident resolves instead of being worked out on every request.
 

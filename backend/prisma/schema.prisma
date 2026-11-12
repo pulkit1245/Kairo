@@ -256,3 +256,19 @@ model RemediationAttempt {
 
   @@index([incidentId])
 }
+
+// ---------- Gemini ----------
+
+// Gemini's answers, cached per commit sha and question (FR-20, PRD section 7),
+// so re-running the same commit never asks twice. answer is Gemini's JSON as
+// it came back; it is validated again every time it is used
+model GeminiAnswer {
+  id        String   @id @default(cuid())
+  commitSha String
+  question  String
+  answer    Json
+  model     String
+  createdAt DateTime @default(now())
+
+  @@unique([commitSha, question])
+}

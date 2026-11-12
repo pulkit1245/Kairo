@@ -24,6 +24,11 @@ const log = createLogger('remediation');
 //   5. 3 attempts in the last 10 minutes            -> SKIPPED, NEEDS_ATTENTION (FR-48)
 //   6. act (executor.service.js), then HEALING and the 90 s check (FR-73)
 //
+// A MANUAL rollback (FR-61, from the release list) is a person's decision: it
+// skips 2, 3 and 5 and doesn't count toward give-up, but otherwise takes the
+// same path: the grace window, HEALING and the 90 s check. A verified one
+// ends NEEDS_ATTENTION. rollback.service.js checks the rest before calling.
+//
 // Returns the attempt to record and followUp(attemptId), which records the
 // release changes of a rollback and runs the verification. Call followUp right
 // away with a promise of the attempt's id: act first, record second (FR-74).
@@ -33,7 +38,7 @@ const NOT_COUNTED = new Set(['SCALE_DOWN', 'NONE']); // decision 6
 /**
  * @param {{ id: string, slug: string, namespace: string }} app
  * @param {string} action
- * @param {{ pod?: string | null }} ctx
+ * @param {{ pod?: string | null, toReleaseId?: string }} ctx  toReleaseId: a manual rollback's target
  * @param {string} [trigger]
  */
 export async function heal(app, action, ctx, trigger = 'AUTO') {
@@ -43,11 +48,12 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
     return done(app, { action, trigger, dryRun: env.remediationDryRun, result: 'SKIPPED', attemptedAt, reason: note }, note);
   };
 
+  const manual = trigger === 'MANUAL';
   if (action === 'NONE') return skip('no action for this alert');
-  if (state.getHealth(app.slug) === 'NEEDS_ATTENTION') return skip('the app needs attention: Kairo stopped acting on it');
-  if (!state.isAutoHeal(app.slug)) return skip('auto-heal is off', 'an alert fired with auto-heal off');
+  if (!manual && state.getHealth(app.slug) === 'NEEDS_ATTENTION') return skip('the app needs attention: Kairo stopped acting on it');
+  if (!manual && !state.isAutoHeal(app.slug)) return skip('auto-heal is off', 'an alert fired with auto-heal off');
   if (isRolloutInProgress(app.slug)) return skip('a rollout is in progress');
-  if (!NOT_COUNTED.has(action) && state.recentAttempts(app.slug) >= state.GIVE_UP_ATTEMPTS) {
+  if (!manual && !NOT_COUNTED.has(action) && state.recentAttempts(app.slug) >= state.GIVE_UP_ATTEMPTS) {
     log.warn(`${app.slug}: ${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes, giving up`);
     return skip(`gave up: ${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes`, `${state.GIVE_UP_ATTEMPTS} attempts in 10 minutes didn't fix it`);
   }
@@ -58,7 +64,13 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
   // act
   let outcome;
   try {
-    outcome = await executeAction(action, { appId: app.id, slug: app.slug, namespace: app.namespace, pod: ctx.pod ?? null });
+    outcome = await executeAction(action, {
+      appId: app.id,
+      slug: app.slug,
+      namespace: app.namespace,
+      pod: ctx.pod ?? null,
+      toReleaseId: ctx.toReleaseId ?? null,
+    });
   } catch (err) {
     state.releaseAction(app.slug, token);
     throw err;
@@ -77,8 +89,10 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
   };
   if (outcome.result !== 'APPLIED') state.releaseAction(app.slug, token);
   if (outcome.result === 'SKIPPED') return done(app, attempt, outcome.note);
-  if (!NOT_COUNTED.has(ran)) state.countAttempt(app.slug, attemptedAt.getTime());
+  if (!manual && !NOT_COUNTED.has(ran)) state.countAttempt(app.slug, attemptedAt.getTime());
   if (outcome.result === 'FAILED') return done(app, attempt, outcome.note);
+  // a person picked the release: the give-up count starts again (FR-49)
+  if (manual) state.clearAttempts(app.slug);
 
   setAppHealth(app.slug, 'HEALING');
   // FR-71: a rollback is a rollout too. The window starts now, so the watcher

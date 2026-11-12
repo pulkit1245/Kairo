@@ -7,7 +7,7 @@ import { ChartCanvas } from '../operations/ChartCanvas.jsx';
 import { themeColor } from '../operations/chart.setup.js';
 import { usePoll } from '../../hooks/usePoll.js';
 import { getIncident } from '../../services/api.js';
-import { actionDetail, actionText, attemptBadge, incidentTitle } from './incident.text.js';
+import { actionDetail, actionText, attemptBadge, incidentTitle, isManual } from './incident.text.js';
 
 // The incident drawer (Stitch 08): what happened, the pods' memory around
 // it, a timeline and the attempts. Refreshes every 5 s while the incident is
@@ -53,7 +53,7 @@ export function IncidentDrawer({ id, onClose }) {
         <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
           {incident && (
             <>
-              <Explanation incident={incident} />
+              {!isManual(incident) && <Explanation incident={incident} />}
               <MemoryChart incident={incident} />
               <Timeline incident={incident} />
               <Attempts incident={incident} />
@@ -89,7 +89,13 @@ function Header({ incident: i }) {
       </h2>
       <p className="text-body-md text-on-surface-variant">{i.cause}</p>
       <div className="flex flex-wrap items-center gap-2 font-mono text-code-sm">
-        <span className="rounded border border-error/40 bg-error-container/20 px-2 py-0.5 text-error">{i.alertName}</span>
+        {isManual(i) ? (
+          <span className="inline-flex items-center gap-1 rounded border border-secondary/40 px-2 py-0.5 text-secondary">
+            <Icon name="person" className="text-[14px]" /> Manual
+          </span>
+        ) : (
+          <span className="rounded border border-error/40 bg-error-container/20 px-2 py-0.5 text-error">{i.alertName}</span>
+        )}
         {i.status === 'RESOLVED' ? (
           <span className="inline-flex items-center gap-1 rounded border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 text-tertiary">
             <Icon name="check_circle" className="text-[14px]" /> Recovered in {i.recoverySeconds} s
@@ -98,6 +104,16 @@ function Header({ incident: i }) {
           <span className="inline-flex items-center gap-1 rounded border border-warning/40 bg-warning/10 px-2 py-0.5 text-warning">
             <Icon name="warning" className="text-[14px]" /> Open
           </span>
+        )}
+        {i.githubIssueUrl && (
+          <a
+            href={i.githubIssueUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded border border-outline-variant bg-surface-container px-2 py-0.5 text-primary hover:underline"
+          >
+            <Icon name="bug_report" className="text-[14px]" /> GitHub issue #{i.githubIssueNumber}
+          </a>
         )}
         {i.pod && (
           <span className="inline-flex items-center gap-1 rounded border border-outline-variant bg-surface-container px-2 py-0.5 text-on-surface-variant">
@@ -109,7 +125,8 @@ function Header({ incident: i }) {
   );
 }
 
-// Gemini's explanation (FR-53) arrives in P4; until then the slot says so
+// Gemini's explanation (FR-53), stored a few seconds after the incident
+// opens. Without it, the rule-based cause above is the whole story (FR-54)
 function Explanation({ incident }) {
   return (
     <section className="flex flex-col gap-2 rounded border border-outline-variant bg-surface-container px-4 py-3">
@@ -117,11 +134,16 @@ function Explanation({ incident }) {
         <Icon name="psychology" className="text-[20px] text-primary" /> What happened
       </h3>
       {incident.explanation ? (
-        <p className="text-body-lg">{incident.explanation}</p>
+        <>
+          <p className="text-body-lg">{incident.explanation}</p>
+          <p className="flex items-center gap-1 font-mono text-code-sm text-on-surface-variant">
+            <Icon name="auto_awesome" className="text-[14px]" /> Explained by Gemini from the alert and the pod's last 50 log lines
+          </p>
+        </>
       ) : (
         <p className="text-body-md text-on-surface-variant">
-          No explanation yet. Gemini will explain incidents from the pod's logs here; until then, the cause above is Kairo's rule-based
-          reading of the alert.
+          No explanation from Gemini. It explains incidents from the pod's logs a few seconds after they open; when it is off or busy,
+          the cause above is Kairo's rule-based reading of the alert.
         </p>
       )}
     </section>
@@ -225,7 +247,11 @@ function MemoryChart({ incident }) {
 
 // alert fired, each action and its check, resolved: in time order, with T+s
 function events(i) {
-  const list = [{ t: i.startedAt, title: 'Alert fired', text: i.cause, icon: 'warning', tone: 'bad' }];
+  const list = [
+    isManual(i)
+      ? { t: i.startedAt, title: 'Rollback asked for', text: i.cause, icon: 'person', tone: 'busy' }
+      : { t: i.startedAt, title: 'Alert fired', text: i.cause, icon: 'warning', tone: 'bad' },
+  ];
   for (const a of i.attempts) {
     const badge = attemptBadge(a);
     list.push({
@@ -256,7 +282,11 @@ function events(i) {
     }
   }
   if (i.resolvedAt) {
-    list.push({ t: i.resolvedAt, title: 'Alert resolved', text: 'Prometheus marked the alert resolved.', icon: 'check_circle', tone: 'ok' });
+    list.push(
+      isManual(i)
+        ? { t: i.resolvedAt, title: 'Closed', text: "Kairo closed the incident when the rollback's check ended.", icon: 'check_circle', tone: 'ok' }
+        : { t: i.resolvedAt, title: 'Alert resolved', text: 'Prometheus marked the alert resolved.', icon: 'check_circle', tone: 'ok' },
+    );
   }
   const at = (e) => (e.t ? Date.parse(e.t) : Infinity);
   return list.sort((a, b) => at(a) - at(b));
