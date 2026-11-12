@@ -25,6 +25,18 @@ import { createLogger } from './utils/logger.js';
 
 const log = createLogger('server');
 
+// An error nothing caught would otherwise be printed by Node itself, past the
+// logger's secret filter. Log it through the logger, then stop as Node would
+// (a crashed backend is restarted by whoever runs it; it doesn't limp on)
+process.on('uncaughtException', (err) => {
+  log.error('uncaught error, stopping', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  log.error('unhandled promise rejection, stopping', reason);
+  process.exit(1);
+});
+
 // FR-34: PR state every 60 s
 const PR_CHECK_MS = 60_000;
 // FR-49: NEEDS_ATTENTION clears after 10 quiet minutes, checked every 60 s

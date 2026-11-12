@@ -185,7 +185,7 @@ async function main() {
     'max over the last day of the node working set (kubelet), against the node capacity Docker Desktop gives the VM; P5f measures it with 3 apps under load');
 
   // 13 and 14
-  add('Secrets leaked', 'zero', 'P5b', null, 'automated test, P5b');
+  add('Secrets leaked', 'zero', 'see npm test', null, 'automated: tests/unit/secrets.test.js plants fake secrets and searches every log line, HTTP response, Gemini request and the browser bundle; part of npm test');
   add('Works without Gemini', 'full loop passes', 'passed in P4', true, 'measured by hand: note 05 (P4c), GEMINI_ENABLED=false loop');
 
   if (process.argv.includes('--json')) {

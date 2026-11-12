@@ -48,6 +48,8 @@ Sign-in uses the Kairo GitHub App's user authorization. `.env` needs the App's `
 
 Installation tokens are minted for each request (`src/github/github.client.js` gives Octokit a cache that keeps nothing) and never stored, logged or sent to the browser (FR-5).
 
+Logs never carry a secret: every line, and every error logged with it, goes through `scrub()` in `src/utils/logger.js`, which masks anything shaped like a token or key (the same patterns as Gemini's input) and the actual values of `GITHUB_CLIENT_SECRET`, `SESSION_SECRET`, `GEMINI_API_KEY`, `ALERT_WEBHOOK_TOKEN` and the database password. An error nothing caught is logged the same way before the process stops. `tests/unit/secrets.test.js` plants fake secrets and checks logs, HTTP responses, Gemini requests and the browser bundle (PRD section 9).
+
 ## Data model
 
 Nine tables, from PRD section 7 (`prisma/schema.prisma`):
