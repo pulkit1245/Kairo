@@ -11,15 +11,21 @@ import { createLogger } from '../utils/logger.js';
 // The key goes only in the x-goog-api-key header. It is never logged, and
 // neither are prompts (they may hold repo code or app logs).
 //
-// Models: GEMINI_MODEL first, then GEMINI_FALLBACK_MODEL when the first one is
-// busy (503, 429), failing (5xx) or slower than GEMINI_TIMEOUT_MS. A busy
+// Models: GEMINI_MODEL first, then each of GEMINI_FALLBACK_MODELS in order
+// when the one before is busy (503, 429), failing (5xx, 404, bad JSON) or
+// slower than GEMINI_TIMEOUT_MS. At most one attempt per model and at most
+// MAX_ATTEMPTS per question, each with its own timeout (connecting and reading
+// the answer), so a slow model costs one timeout, not the whole chain. A busy
 // model is skipped for BUSY_SKIP_MS, so each call doesn't wait for it again.
 // A model out of quota (429 with a retry delay, e.g. the free tier's 20
-// requests a day) is skipped until Google says to come back.
+// requests a day) is skipped until Google says to come back. Every attempt
+// counts against that model's quota, so nothing is ever retried in a loop.
 
 const log = createLogger('gemini');
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 export const BUSY_SKIP_MS = 5 * 60 * 1000;
+// the main model plus the three default fallbacks
+export const MAX_ATTEMPTS = 4;
 const MAX_SKIP_MS = 24 * 60 * 60 * 1000;
 
 let fetchFn = (...a) => fetch(...a);
@@ -66,7 +72,7 @@ export async function askGemini({ purpose, instructions, input, schema, cache })
     }
   }
 
-  const models = [env.gemini.model, env.gemini.fallbackModel].filter((m, i, all) => m && all.indexOf(m) === i);
+  const models = chain();
   const now = Date.now();
   // a model marked busy is skipped. When all are, the last one that was only
   // busy (not out of quota) is tried anyway
@@ -100,7 +106,7 @@ export async function askGemini({ purpose, instructions, input, schema, cache })
       }
       return { data: out.data, model, cached: false };
     }
-    log.warn(`${purpose}: ${model} ${out.why} after ${ms} ms`);
+    log.warn(`${purpose}: ${model} ${out.why} after ${ms} ms${out.tryNext && model !== order.at(-1) ? '; trying the next model' : ''}`);
     if (out.busy) {
       const skip = Math.min(Math.max(BUSY_SKIP_MS, out.retryMs ?? 0), MAX_SKIP_MS);
       busyUntil.set(model, { until: Date.now() + skip, quota: skip > BUSY_SKIP_MS });
@@ -109,6 +115,12 @@ export async function askGemini({ purpose, instructions, input, schema, cache })
   }
   setStatus('down', env.gemini.model, 'the last call failed; Kairo used its defaults');
   return null;
+}
+
+// GEMINI_MODEL then GEMINI_FALLBACK_MODELS, each once, at most MAX_ATTEMPTS
+export function chain() {
+  const all = [env.gemini.model, ...(env.gemini.fallbackModels ?? [])].filter((m, i, list) => m && list.indexOf(m) === i);
+  return all.slice(0, MAX_ATTEMPTS);
 }
 
 // the latest time a quota-skipped model comes back, as an ISO time
@@ -131,10 +143,15 @@ async function generate(model, instructions, input, schema) {
     return { ok: false, busy: timedOut, tryNext: true, why: timedOut ? `timed out (${env.gemini.timeoutMs} ms)` : `unreachable (${shortError(err)})` };
   }
 
+  // the same timeout covers reading the answer: a model that starts answering
+  // and then stalls is a timeout too
   let body = null;
   try {
     body = await res.json();
-  } catch {
+  } catch (err) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      return { ok: false, busy: true, tryNext: true, why: `timed out reading the answer (${env.gemini.timeoutMs} ms)` };
+    }
     // an HTML error page or a cut-off body
   }
   if (!res.ok) {
@@ -190,6 +207,10 @@ export async function checkGemini() {
     log.info(`off (${geminiStatus().detail})`);
     return;
   }
+  // renamed 12 Nov; the old one-model setting is no longer read
+  if (process.env.GEMINI_FALLBACK_MODEL !== undefined) {
+    log.warn('GEMINI_FALLBACK_MODEL is no longer used; set GEMINI_FALLBACK_MODELS (comma separated) instead');
+  }
   try {
     const res = await fetchFn(`${API}/${encodeURIComponent(env.gemini.model)}`, {
       headers: { 'x-goog-api-key': env.gemini.apiKey },
@@ -197,7 +218,8 @@ export async function checkGemini() {
     });
     if (res.ok) {
       setStatus('up', env.gemini.model, null);
-      log.info(`on: ${env.gemini.model}${env.gemini.fallbackModel ? `, falling back to ${env.gemini.fallbackModel}` : ''}`);
+      const rest = chain().slice(1);
+      log.info(`on: ${env.gemini.model}${rest.length ? `, then ${rest.join(', ')}` : ''} (one attempt each, ${env.gemini.timeoutMs} ms per attempt)`);
     } else {
       setStatus('down', env.gemini.model, `the model check got HTTP ${res.status}`);
       log.warn(`${env.gemini.model} check got HTTP ${res.status}; Gemini calls will likely fail`);

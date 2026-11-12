@@ -61,8 +61,12 @@ export const env = {
     enabled: bool('GEMINI_ENABLED', true),
     apiKey: process.env.GEMINI_API_KEY || null,
     model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-    // tried when the model is busy, failing or slow; empty = none
-    fallbackModel: process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.5-flash-lite',
+    // tried in order when the one before is busy, out of quota, failing or
+    // slow; comma separated, empty = none. Ids from the key's model list
+    // (12 Nov): 3.6 Flash, then the two Flash Lite models, which have far
+    // larger free quotas (500 a day for 3.5 Flash Lite against 20)
+    fallbackModels: modelList(process.env.GEMINI_FALLBACK_MODELS, ['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']),
+    // per attempt, so one slow model can't hold up the rest of the chain
     timeoutMs: Number(process.env.GEMINI_TIMEOUT_MS) || 15_000,
   },
 
@@ -79,6 +83,15 @@ export const env = {
 
 export const githubConfigured = () =>
   Boolean(env.github.appId && env.github.appSlug && env.github.clientId && env.github.clientSecret);
+
+// "a, b,c" -> ['a', 'b', 'c']; unset -> the default; "" -> [] (no fallback)
+export function modelList(raw, fallback) {
+  if (raw === undefined) return fallback;
+  return raw
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
+}
 
 function expandHome(p) {
   return p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p;

@@ -7,7 +7,8 @@ import { env } from '../../src/config/env.config.js';
 import { assertKnown, detectFacts } from '../../src/generator/detection/detection.service.js';
 import { buildInput, candidates, fileTree, fillUnknownFacts, MAX_PATHS } from '../../src/generator/detection/fill.service.js';
 import { explainBuildFailure, explainIncident } from '../../src/gemini/explain.service.js';
-import { _reset, _setDb, _setFetch, askGemini, geminiStatus } from '../../src/gemini/gemini.client.js';
+import { _reset, _setDb, _setFetch, askGemini, chain, geminiStatus, MAX_ATTEMPTS } from '../../src/gemini/gemini.client.js';
+import { modelList } from '../../src/config/env.config.js';
 import { isSecretFile, redact } from '../../src/gemini/redact.service.js';
 
 // Gemini is never called for real here: fetch and the cache table are fakes,
@@ -16,7 +17,7 @@ import { isSecretFile, redact } from '../../src/gemini/redact.service.js';
 const saved = { ...env.gemini };
 let dir;
 beforeEach(async () => {
-  Object.assign(env.gemini, { enabled: true, apiKey: 'test-key', model: 'main-model', fallbackModel: 'spare-model', timeoutMs: 200 });
+  Object.assign(env.gemini, { enabled: true, apiKey: 'test-key', model: 'main-model', fallbackModels: ['spare-model'], timeoutMs: 200 });
   _reset();
   _setDb(fakeDb());
   dir = await mkdtemp(path.join(os.tmpdir(), 'kairo-gemini-'));
@@ -129,6 +130,46 @@ describe('Gemini client', () => {
     assert.equal(await askGemini(q), null);
     assert.equal(f.calls.length, 2);
     assert.match(geminiStatus().detail, /out of quota until/);
+  });
+
+  it('walks the fallback list, one attempt per model, and stops at the first answer', async () => {
+    env.gemini.fallbackModels = ['m2', 'm3', 'm4'];
+    const f = fakeFetch([answer({}, 503), answer({}, 500), answer({ ok: 3 })]);
+    _setFetch(f);
+    const out = await askGemini(q);
+    assert.deepEqual(out, { data: { ok: 3 }, model: 'm3', cached: false });
+    assert.deepEqual(f.calls.map((c) => c.url.match(/models\/([^:]+)/)[1]), ['main-model', 'm2', 'm3']);
+  });
+
+  it('makes at most 4 attempts, never two on the same model', async () => {
+    env.gemini.fallbackModels = ['m2', 'main-model', 'm3', 'm2', 'm4', 'm5', 'm6'];
+    assert.deepEqual(chain(), ['main-model', 'm2', 'm3', 'm4']);
+    assert.equal(MAX_ATTEMPTS, 4);
+    const f = fakeFetch(Array.from({ length: 10 }, () => answer({}, 503)));
+    _setFetch(f);
+    assert.equal(await askGemini(q), null);
+    const tried = f.calls.map((c) => c.url.match(/models\/([^:]+)/)[1]);
+    assert.deepEqual(tried, ['main-model', 'm2', 'm3', 'm4']);
+  });
+
+  it('gives each attempt its own timeout, so a slow model costs one timeout, not the chain', async () => {
+    env.gemini.fallbackModels = ['m2', 'm3', 'm4'];
+    const f = fakeFetch(['hang', 'hang', answer({ ok: true })]);
+    _setFetch(f);
+    const started = Date.now();
+    const out = await askGemini(q);
+    const took = Date.now() - started;
+    assert.equal(out.model, 'm3');
+    // two timeouts of 200 ms, then an answer: about 400 ms, not more
+    assert.ok(took >= 380 && took < 1200, `took ${took} ms`);
+    for (const c of f.calls) assert.ok(c.init.signal instanceof AbortSignal, 'every attempt has its own signal');
+    assert.notEqual(f.calls[0].init.signal, f.calls[1].init.signal);
+  });
+
+  it('reads the fallback list from a comma-separated setting', () => {
+    assert.deepEqual(modelList(' a, b ,,c ', ['x']), ['a', 'b', 'c']);
+    assert.deepEqual(modelList(undefined, ['x']), ['x']);
+    assert.deepEqual(modelList('', ['x']), []);
   });
 
   it("doesn't try another model when the request itself is wrong (400)", async () => {
