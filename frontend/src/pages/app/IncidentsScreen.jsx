@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useOutletContext } from 'react-router';
 import { AppIncidents } from '../../components/app/AppIncidents.jsx';
-import { IncidentDrawer } from '../../components/app/IncidentDrawer.jsx';
 import { usePoll } from '../../hooks/usePoll.js';
 import { getAppIncidents } from '../../services/api.js';
 
@@ -14,9 +13,6 @@ export function IncidentsScreen() {
   const { app } = useOutletContext();
   const first = usePoll(() => getAppIncidents(app.slug), POLL_MS, [app.slug], `incidents:${app.slug}`);
   const [older, setOlder] = useState({ incidents: [], more: null, busy: false, error: null });
-  const [openIncident, setOpenIncident] = useState(null);
-  const closeIncident = useCallback(() => setOpenIncident(null), []);
-  useEffect(() => setOlder({ incidents: [], more: null, busy: false, error: null }), [app.slug]);
 
   // the newest page can gain incidents while older pages are shown: no doubles
   const seen = new Set();
@@ -38,7 +34,6 @@ export function IncidentsScreen() {
       <AppIncidents
         incidents={incidents}
         loading={first.loading}
-        onOpen={setOpenIncident}
         footer={
           (more || older.error) && (
             <div className="flex flex-wrap items-center gap-3 border-t border-outline-variant px-4 py-2.5 font-mono text-code-sm">
@@ -53,7 +48,6 @@ export function IncidentsScreen() {
         }
       />
       {first.error && !first.data && <p className="text-body-md text-error">{first.error.message}</p>}
-      {openIncident && <IncidentDrawer id={openIncident} onClose={closeIncident} />}
     </>
   );
 }

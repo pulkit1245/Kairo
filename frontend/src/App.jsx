@@ -2,7 +2,8 @@ import { createBrowserRouter, RouterProvider } from 'react-router';
 import { RequireAuth } from './components/auth/auth.jsx';
 import { Layout } from './components/common/Layout.jsx';
 import { AddRepoPage } from './pages/AddRepoPage.jsx';
-import { AppScreens } from './pages/app/AppScreens.jsx';
+import { AppScreensRoute } from './pages/app/AppScreens.jsx';
+import { IncidentPageRoute } from './pages/app/IncidentPage.jsx';
 import { IncidentsScreen } from './pages/app/IncidentsScreen.jsx';
 import { LogsScreen } from './pages/app/LogsScreen.jsx';
 import { MetricsScreen } from './pages/app/MetricsScreen.jsx';
@@ -32,7 +33,7 @@ const router = createBrowserRouter([
       // an app's screens (P5d, mockup v2), each at its own address
       {
         path: '/apps/:slug',
-        element: <AppScreens />,
+        element: <AppScreensRoute />,
         children: [
           { index: true, element: <OverviewScreen /> },
           { path: 'incidents', element: <IncidentsScreen /> },
@@ -43,6 +44,8 @@ const router = createBrowserRouter([
           { path: '*', element: <NotFoundPage /> },
         ],
       },
+      // one incident as its own page (was the drawer); GitHub issues link here
+      { path: '/apps/:slug/incidents/:id', element: <IncidentPageRoute /> },
       { path: '/deployments/:id', element: <DeploymentPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

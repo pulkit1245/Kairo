@@ -1,7 +1,5 @@
-import { useCallback, useState } from 'react';
 import { Link, useOutletContext } from 'react-router';
 import { AppIncidents } from '../../components/app/AppIncidents.jsx';
-import { IncidentDrawer } from '../../components/app/IncidentDrawer.jsx';
 import { KpiRow } from '../../components/app/KpiRow.jsx';
 import { MetricCharts } from '../../components/app/MetricCharts.jsx';
 import { releaseHealth } from '../../components/app/ReleaseTable.jsx';
@@ -22,8 +20,6 @@ export function OverviewScreen() {
   const { app, now } = useOutletContext();
   const metrics = usePoll(() => getAppMetrics(app.slug), POLL_MS, [app.slug], `metrics:${app.slug}`);
   const latest = usePoll(() => getAppIncidents(app.slug, { limit: 3 }), POLL_MS, [app.slug], `incidents3:${app.slug}`);
-  const [openIncident, setOpenIncident] = useState(null);
-  const closeIncident = useCallback(() => setOpenIncident(null), []);
 
   return (
     <>
@@ -35,7 +31,6 @@ export function OverviewScreen() {
           filters={false}
           loading={latest.loading}
           incidents={latest.data?.incidents ?? []}
-          onOpen={setOpenIncident}
           footer={
             app.incidentCount > 0 && (
               <MoreLink to={screenUrl(app.slug, 'incidents')}>
@@ -46,7 +41,6 @@ export function OverviewScreen() {
         />
         <ActiveRelease app={app} now={now} />
       </div>
-      {openIncident && <IncidentDrawer id={openIncident} onClose={closeIncident} />}
     </>
   );
 }

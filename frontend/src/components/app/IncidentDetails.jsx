@@ -1,93 +1,44 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
+import { Link } from 'react-router';
 import { duration, relativeTime, utcClock, utcStamp } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { StatusBadge } from '../common/StatusBadge.jsx';
 import { TONE_CLASS } from '../common/status.js';
 import { ChartCanvas } from '../operations/ChartCanvas.jsx';
 import { themeColor } from '../operations/chart.setup.js';
-import { usePoll } from '../../hooks/usePoll.js';
-import { getIncident } from '../../services/api.js';
 import { actionDetail, actionText, attemptBadge, incidentTitle, isManual } from './incident.text.js';
 
-// The incident drawer (Stitch 08): what happened, the pods' memory around
-// it, a timeline and the attempts. Refreshes every 5 s while the incident is
-// open or an action is still being checked. Escape or the backdrop closes it.
-const POLL_MS = 5000;
+// The parts of an incident's own page (P5d, mockup v2; the drawer before,
+// Stitch 08): its header, what happened, the pods' memory around it, a
+// timeline and the attempts.
 const MiB = 1024 * 1024;
 
-export function IncidentDrawer({ id, onClose }) {
-  const settled = (i) => i && i.status === 'RESOLVED' && i.attempts.every((a) => a.result !== 'APPLIED');
-  const { data: incident, error } = usePoll(() => getIncident(id), (i) => (settled(i) ? null : POLL_MS), [id]);
-  const closeRef = useRef(null);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
+// a bordered panel with the app screens' header bar
+function Section({ title, icon, meta, children }) {
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-surface-container-lowest/70" onClick={onClose} aria-hidden="true" />
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="incident-title"
-        className="relative flex h-full w-full max-w-[640px] flex-col border-l border-outline-variant bg-surface-container-low shadow-2xl"
-      >
-        <div className="flex items-start gap-3 border-b border-outline-variant px-5 py-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            {incident ? <Header incident={incident} /> : <p className="text-on-surface-variant">{error ? error.message : 'Loading…'}</p>}
-          </div>
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            className="grid size-8 place-items-center rounded border border-outline-variant hover:bg-surface-container-high"
-          >
-            <Icon name="close" label="Close" className="text-[18px]" />
-          </button>
-        </div>
-
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
-          {incident && (
-            <>
-              {!isManual(incident) && <Explanation incident={incident} />}
-              <MemoryChart incident={incident} />
-              <Timeline incident={incident} />
-              <Attempts incident={incident} />
-            </>
-          )}
-        </div>
-
-        <div className="flex justify-end border-t border-outline-variant px-5 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-outline-variant px-4 py-1.5 font-mono text-code-md hover:bg-surface-container-high"
-          >
-            Close
-          </button>
-        </div>
-      </aside>
-    </div>
+    <section className="flex min-w-0 flex-col rounded border border-outline-variant bg-surface-container-low">
+      <header className="flex items-center justify-between gap-3 border-b border-outline-variant px-4 py-3">
+        <h2 className="flex items-center gap-2 font-mono text-code-md uppercase tracking-wider text-on-surface-variant">
+          <Icon name={icon} className="text-[18px] text-primary" /> {title}
+        </h2>
+        {meta && <div className="font-mono text-code-sm text-on-surface-variant">{meta}</div>}
+      </header>
+      <div className="px-4 py-4">{children}</div>
+    </section>
   );
 }
 
-function Header({ incident: i }) {
+export function IncidentHeader({ incident: i }) {
   return (
-    <>
+    <header className="flex flex-col gap-2 rounded border border-outline-variant bg-surface-container-low px-5 py-4">
       <div className="flex flex-wrap items-center gap-2 font-mono text-code-md">
         <span className="rounded bg-surface-container-highest px-1.5 py-0.5 text-primary">#{i.id.slice(-6)}</span>
         <span className="text-on-surface-variant">
           {utcStamp(i.startedAt)} ({relativeTime(i.startedAt)})
         </span>
       </div>
-      <h2 id="incident-title" className="text-headline-lg font-semibold">
-        {incidentTitle(i)}
-      </h2>
-      <p className="text-body-md text-on-surface-variant">{i.cause}</p>
+      <h1 className="text-headline-xl font-semibold">{incidentTitle(i)}</h1>
+      <p className="text-body-lg text-on-surface-variant">{i.cause}</p>
       <div className="flex flex-wrap items-center gap-2 font-mono text-code-sm">
         {isManual(i) ? (
           <span className="inline-flex items-center gap-1 rounded border border-secondary/40 px-2 py-0.5 text-secondary">
@@ -121,18 +72,18 @@ function Header({ incident: i }) {
           </span>
         )}
       </div>
-    </>
+    </header>
   );
 }
 
 // Gemini's explanation (FR-53), stored a few seconds after the incident
-// opens. Without it, the rule-based cause above is the whole story (FR-54)
-function Explanation({ incident }) {
+// opens. Without it, the rule-based cause above is the whole story (FR-54).
+// Kairo doesn't keep the pod's logs with the incident, so this points to the
+// Logs screen, which shows the app's newest pod now
+export function Explanation({ incident, logsUrl }) {
   return (
-    <section className="flex flex-col gap-2 rounded border border-outline-variant bg-surface-container px-4 py-3">
-      <h3 className="flex items-center gap-2 text-headline-md font-semibold">
-        <Icon name="psychology" className="text-[20px] text-primary" /> What happened
-      </h3>
+    <Section title="What happened" icon="psychology">
+      <div className="flex flex-col gap-2">
       {incident.explanation ? (
         <>
           <p className="text-body-lg">{incident.explanation}</p>
@@ -146,11 +97,17 @@ function Explanation({ incident }) {
           the cause above is Kairo's rule-based reading of the alert.
         </p>
       )}
-    </section>
+      {logsUrl && (
+        <Link to={logsUrl} className="inline-flex w-fit items-center gap-1 font-mono text-code-sm text-primary hover:underline">
+          <Icon name="terminal" className="text-[14px]" /> The app's logs now →
+        </Link>
+      )}
+      </div>
+    </Section>
   );
 }
 
-function MemoryChart({ incident }) {
+export function MemoryChart({ incident }) {
   const m = incident.memory;
   const colors = useMemo(
     () => ({ focus: themeColor('primary'), other: themeColor('outline'), limit: themeColor('error'), fired: themeColor('error'), ok: themeColor('tertiary'), act: themeColor('secondary') }),
@@ -211,13 +168,8 @@ function MemoryChart({ incident }) {
 
   const hasPoints = m.pods.some((p) => p.points.length > 0);
   return (
-    <section className="flex flex-col gap-2 rounded border border-outline-variant bg-surface-container px-4 py-3">
-      <header className="flex items-center justify-between gap-2 font-mono text-code-md">
-        <h3 className="flex items-center gap-2 uppercase tracking-wider text-on-surface-variant">
-          <Icon name="monitoring" className="text-[16px]" /> Pod memory (MiB)
-        </h3>
-        <span className="text-on-surface-variant">Limit: {m.limitBytes / MiB} MiB</span>
-      </header>
+    <Section title="Pod memory (MiB)" icon="monitoring" meta={`Limit: ${m.limitBytes / MiB} MiB`}>
+      <div className="flex flex-col gap-2">
       {hasPoints ? (
         <>
           <ChartCanvas type="line" data={chart.data} options={chart.options} height={200} label="Memory of the app's pods around the incident" />
@@ -241,7 +193,8 @@ function MemoryChart({ incident }) {
           {m.error ?? 'No memory data for this time. Prometheus keeps one day.'}
         </p>
       )}
-    </section>
+      </div>
+    </Section>
   );
 }
 
@@ -298,22 +251,18 @@ function since(start, iso) {
   return s < 120 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
-function Timeline({ incident }) {
+export function Timeline({ incident }) {
   const list = events(incident);
   const start = Date.parse(incident.startedAt);
   return (
-    <section className="flex flex-col gap-3">
-      <header className="flex items-center justify-between">
-        <h3 className="text-headline-md font-semibold">Timeline</h3>
-        <span className="rounded bg-tertiary/10 px-2 py-0.5 font-mono text-code-sm text-tertiary">{list.length} events</span>
-      </header>
-      <ol className="relative flex flex-col gap-4 border-l border-outline-variant pl-5">
+    <Section title="Timeline" icon="timeline" meta={`${list.length} events`}>
+      <ol className="relative ml-2.5 flex flex-col gap-4 border-l border-outline-variant pl-5">
         {list.map((e, n) => (
           <li key={n} className="relative">
             <span className={`absolute -left-[31px] top-0 grid size-5 place-items-center rounded-full bg-surface-container-high ${TONE_CLASS[e.tone]}`}>
               <Icon name={e.icon} spin={e.spin} className="text-[14px]" />
             </span>
-            <div className="flex items-baseline justify-between gap-2 font-mono text-code-md">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2 font-mono text-code-md">
               <span className={`${TONE_CLASS[e.tone]} uppercase`}>
                 {e.t ? `${utcClock(e.t, true)} UTC · ` : ''}
                 {e.title}
@@ -324,20 +273,20 @@ function Timeline({ incident }) {
           </li>
         ))}
       </ol>
-    </section>
+    </Section>
   );
 }
 
-function Attempts({ incident }) {
+// every action with its trigger, dry-run flag, result, reason and check time (FR-52)
+export function Attempts({ incident }) {
   const th = 'px-3 py-2 text-left font-mono text-code-sm uppercase tracking-wider text-on-surface-variant font-normal';
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="text-headline-md font-semibold">Attempts</h3>
+    <Section title="Attempts" icon="bolt">
       {incident.attempts.length === 0 ? (
         <p className="text-body-md text-on-surface-variant">None recorded yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded border border-outline-variant">
-          <table className="w-full min-w-[520px] border-collapse">
+        <div className="overflow-x-auto rounded border border-outline-variant [contain:paint]">
+          <table className="w-full min-w-[440px] border-collapse">
             <thead className="border-b border-outline-variant bg-surface-container">
               <tr>
                 <th className={th}>Action</th>
@@ -352,6 +301,7 @@ function Attempts({ incident }) {
                   <td className="px-3 py-2 font-mono text-code-md text-primary">
                     {actionText(a)}
                     {a.trigger === 'MANUAL' && <span className="text-on-surface-variant"> · manual</span>}
+                    {a.dryRun && <span className="text-on-surface-variant"> · dry run</span>}
                   </td>
                   <td className="px-3 py-2">
                     <StatusBadge status={attemptBadge(a)} />
@@ -367,6 +317,6 @@ function Attempts({ incident }) {
           </table>
         </div>
       )}
-    </section>
+    </Section>
   );
 }

@@ -1,13 +1,15 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { duration, utcStamp } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { StatusBadge } from '../common/StatusBadge.jsx';
 import { actionText, attemptBadge, incidentBadge, isManual } from './incident.text.js';
+import { incidentUrl } from './screens.js';
 
 // The app's incidents (Stitch 07): newest first, filtered All / Open /
 // Resolved on the Incidents screen; the Overview shows the latest few as
-// "Latest incidents", without filters. Each one opens the incident drawer
-// (Stitch 08). `footer` sits under the list (View all, Show older).
+// "Latest incidents", without filters. Each one links to its own page
+// (/apps/<slug>/incidents/<id>). `footer` sits under the list (View all, Show older).
 
 const FILTERS = [
   { key: 'all', label: 'All', test: () => true },
@@ -15,7 +17,7 @@ const FILTERS = [
   { key: 'resolved', label: 'Resolved', test: (i) => i.status === 'RESOLVED' },
 ];
 
-export function AppIncidents({ incidents, onOpen, title = 'Incidents', filters = true, footer = null, loading = false }) {
+export function AppIncidents({ incidents, title = 'Incidents', filters = true, footer = null, loading = false }) {
   const [filter, setFilter] = useState('all');
   const shown = incidents.filter(FILTERS.find((f) => f.key === filter).test);
 
@@ -50,7 +52,7 @@ export function AppIncidents({ incidents, onOpen, title = 'Incidents', filters =
         <ul className="divide-y divide-outline-variant">
           {shown.map((i) => (
             <li key={i.id}>
-              <IncidentRow incident={i} onOpen={() => onOpen(i.id)} />
+              <IncidentRow incident={i} />
             </li>
           ))}
         </ul>
@@ -60,12 +62,11 @@ export function AppIncidents({ incidents, onOpen, title = 'Incidents', filters =
   );
 }
 
-function IncidentRow({ incident: i, onOpen }) {
+function IncidentRow({ incident: i }) {
   const badge = incidentBadge(i);
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <Link
+      to={incidentUrl(i.appName, i.id)}
       className={`flex w-full flex-col gap-1.5 px-4 py-3 text-left hover:bg-surface-container ${
         i.status === 'OPEN' ? 'bg-warning/5 shadow-[inset_3px_0_0_var(--color-warning)]' : ''
       }`}
@@ -99,6 +100,6 @@ function IncidentRow({ incident: i, onOpen }) {
       {i.pod && !i.attempts.some((a) => a.action === 'RESTART') && (
         <span className="font-mono text-code-sm text-secondary">pod {i.pod}</span>
       )}
-    </button>
+    </Link>
   );
 }

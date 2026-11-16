@@ -18,7 +18,15 @@ import { getApp } from '../../services/api.js';
 // (FR-56, FR-59): healing and rollouts change them in the background.
 const POLL_MS = 5000;
 
-export function AppScreens() {
+// One app's screens, drawn fresh for each app: switching apps on the same
+// screen drops everything the last one held on screen (older incident pages,
+// paused logs, a rollback's message), not only its polled data (P5d)
+export function AppScreensRoute() {
+  const { slug } = useParams();
+  return <AppScreens key={slug} />;
+}
+
+function AppScreens() {
   const { slug } = useParams();
   const { pathname, hash } = useLocation();
   // bumped after an action that changes the app (a manual rollback), to read it at once

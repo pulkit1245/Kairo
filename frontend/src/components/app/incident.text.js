@@ -1,5 +1,5 @@
-// How an incident reads on the app page and in the drawer (Stitch 07, 08).
-// One place, so the list, the drawer's title and its timeline say the same.
+// How an incident reads on the app screens and its own page (Stitch 07, 08).
+// One place, so the list, the page title and its timeline say the same.
 import { shortSha } from '../common/format.js';
 
 const ALERT_TITLE = {
