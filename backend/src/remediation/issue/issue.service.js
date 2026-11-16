@@ -1,4 +1,4 @@
-import { githubConfigured } from '../../config/env.config.js';
+import { env, githubConfigured } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import * as github from '../../github/github.client.js';
 import { MANUAL_ROLLBACK } from '../../types/incident.types.js';
@@ -160,8 +160,14 @@ export function issueText(incident, attention, needsAttention) {
   if (incident.attempts.length) lines.push('', '**What Kairo did:**', ...incident.attempts.map(attemptLine));
   if (attention) lines.push('', `**Kairo stopped acting on the app:** ${attention}. It needs a look.`);
   else if (needsAttention && !manual) lines.push('', '**The app needs attention:** Kairo is not acting on it until it clears.');
+  lines.push('', `Details on Kairo: [this incident](${incidentLink(incident)}) (opens on the machine that runs Kairo; its dashboard is never public).`);
   return lines.join('\n');
 }
+
+// the incident's own page on the dashboard (P5d). APP_URL is the dashboard's
+// address, the same one GitHub sign-in returns to
+export const incidentLink = (incident) =>
+  `${env.appUrl}/apps/${encodeURIComponent(incident.app.slug)}/incidents/${encodeURIComponent(incident.id)}`;
 
 // tests
 export function _setDeps({ github: g = github, db: d = prisma } = {}) {

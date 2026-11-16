@@ -92,6 +92,7 @@ describe('GitHub issues (FR-55)', () => {
     assert.equal(`${issue.owner}/${issue.repo}`, 'someone/demo');
     assert.equal(issue.title, 'Kairo rolled back demo');
     assert.match(issue.body, /Rolled back from the Break It release to `bbbbbbb`/);
+    assert.ok(issue.body.includes(`[this incident](${env.appUrl}/apps/demo/incidents/i1)`), 'links to the incident page');
     assert.deepEqual(calls.saved, [['i1', 7]]);
   });
 
@@ -102,7 +103,18 @@ describe('GitHub issues (FR-55)', () => {
     assert.equal(calls.opened.length, 0);
     assert.equal(calls.comments[0].number, 3);
     assert.match(calls.comments[0].body, /Restarted the pod, verified/);
+    assert.ok(calls.comments[0].body.includes(`[this incident](${env.appUrl}/apps/demo/incidents/i1)`), 'comments link too');
     assert.deepEqual(calls.saved, [['i1', 3]]);
+  });
+
+  it("the incident link is the dashboard's own address, local only, and the link comes last", () => {
+    const text = issueText(incidentRow({ id: 'c1x', app: { slug: 'my app' } }), null, false);
+    const last = text.split('\n').at(-1);
+    assert.equal(
+      last,
+      `Details on Kairo: [this incident](${env.appUrl}/apps/my%20app/incidents/c1x) (opens on the machine that runs Kairo; its dashboard is never public).`,
+    );
+    assert.doesNotMatch(env.appUrl, /\/$/);
   });
 
   it('a restart on a healthy app with no open issue stays on the dashboard', async () => {

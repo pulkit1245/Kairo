@@ -332,10 +332,13 @@ const WITH_ATTEMPTS = {
   },
 };
 
-export async function listIncidents(limit = 50, where = {}) {
+// `after`: an incident id; the list then starts just past it ("Show older")
+export async function listIncidents(limit = 50, where = {}, after = undefined) {
   const rows = await prisma.incident.findMany({
     where,
-    orderBy: { startedAt: 'desc' },
+    ...(after ? { cursor: { id: after }, skip: 1 } : {}),
+    // id breaks ties (two alerts in the same second), as Newer/Older do
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
     take: limit,
     include: WITH_ATTEMPTS,
   });

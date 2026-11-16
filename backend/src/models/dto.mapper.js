@@ -71,18 +71,12 @@ function prDto(app) {
 }
 
 /**
- * The app page header and release list (P2c, Stitch 07).
- * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
+ * One release on the Releases screen and in the app header (P2c, FR-60, FR-61).
  * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38),
- *          attentionReason, traffic: Send Traffic's current or last run,
- *          incidents: Incident DTOs }
+ *          rollbackBlocked: (release) => null when "Roll back to this" can run now, else why not }
  */
-export function toAppDto(
-  row,
-  { graceMs, storedImages, attentionReason = null, traffic = null, incidents = [], tunnel = null, rollbackBlocked = () => 'not offered' },
-) {
-  const run = row.pipelineRuns?.[0] ?? null;
-  const release = (r) => ({
+export function toReleaseDto(r, { graceMs, storedImages, rollbackBlocked = () => 'not offered' }) {
+  return {
     id: r.id,
     commitSha: r.commitSha,
     commitMessage: r.commitMessage,
@@ -97,7 +91,37 @@ export function toAppDto(
     // FR-61: "Roll back to this" is offered on earlier healthy releases whose
     // image is stored; null when it can run now, else why not (e.g. a grace window)
     rollbackBlockedBy: rollbackBlocked(r),
-  });
+  };
+}
+
+// FR-61: the release list offers "Roll back to this" on this release. The
+// same rule as the frontend's button; the banner's "Roll back manually" uses it
+export const offersRollback = (r, active, storedImages) =>
+  r.status !== 'ACTIVE' && Boolean(r.healthyAt) && storedImages.has(r.imageRef) && r.source !== 'TEST' && r.imageRef !== active?.imageRef;
+
+/**
+ * The app's header and needs-attention banner (P2c, Stitch 07, FR-59).
+ * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
+ * extra: { graceMs, storedImages, attentionReason, traffic: Send Traffic's
+ *          current or last run, incidents: Incident DTOs, tunnel, rollbackBlocked,
+ *          counts: { open, total } incidents, issue: the newest incident with a GitHub issue }
+ */
+export function toAppDto(
+  row,
+  {
+    graceMs,
+    storedImages,
+    attentionReason = null,
+    traffic = null,
+    incidents = [],
+    tunnel = null,
+    rollbackBlocked = () => 'not offered',
+    counts = { open: 0, total: 0 },
+    issue = null,
+  },
+) {
+  const run = row.pipelineRuns?.[0] ?? null;
+  const release = (r) => toReleaseDto(r, { graceMs, storedImages, rollbackBlocked });
   const active = row.releases.find((r) => r.status === 'ACTIVE');
   return {
     id: row.id,
@@ -126,6 +150,13 @@ export function toAppDto(
     traffic,
     // the app's latest incidents, newest first (P3b), as GET /api/incidents
     incidents,
+    // the banner and tab bar (P5d), so they don't need the full lists
+    openIncidents: counts.open,
+    incidentCount: counts.total,
+    canRollBack: row.releases.some((r) => offersRollback(r, active, storedImages)),
+    issue: issue?.githubIssueNumber
+      ? { number: issue.githubIssueNumber, url: `https://github.com/${row.repoFullName}/issues/${issue.githubIssueNumber}` }
+      : null,
   };
 }
 
