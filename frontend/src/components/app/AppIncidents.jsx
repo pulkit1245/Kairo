@@ -5,7 +5,9 @@ import { StatusBadge } from '../common/StatusBadge.jsx';
 import { actionText, attemptBadge, incidentBadge, isManual } from './incident.text.js';
 
 // The app's incidents (Stitch 07): newest first, filtered All / Open /
-// Resolved. Each one opens the incident drawer (Stitch 08).
+// Resolved on the Incidents screen; the Overview shows the latest few as
+// "Latest incidents", without filters. Each one opens the incident drawer
+// (Stitch 08). `footer` sits under the list (View all, Show older).
 
 const FILTERS = [
   { key: 'all', label: 'All', test: () => true },
@@ -13,16 +15,17 @@ const FILTERS = [
   { key: 'resolved', label: 'Resolved', test: (i) => i.status === 'RESOLVED' },
 ];
 
-export function AppIncidents({ incidents, onOpen }) {
+export function AppIncidents({ incidents, onOpen, title = 'Incidents', filters = true, footer = null, loading = false }) {
   const [filter, setFilter] = useState('all');
   const shown = incidents.filter(FILTERS.find((f) => f.key === filter).test);
 
   return (
-    <section id="incidents" className="flex min-w-0 scroll-mt-4 flex-col rounded border border-outline-variant bg-surface-container-low">
-      <header className="flex items-center justify-between gap-3 border-b border-outline-variant px-4 py-3">
+    <section className="flex min-w-0 flex-col rounded border border-outline-variant bg-surface-container-low">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-outline-variant px-4 py-3">
         <h2 className="flex items-center gap-2 font-mono text-code-md uppercase tracking-wider text-on-surface-variant">
-          <Icon name="healing" className="text-[18px] text-tertiary" /> Incidents
+          <Icon name="healing" className="text-[18px] text-tertiary" /> {title}
         </h2>
+        {filters && (
         <div className="flex rounded border border-outline-variant bg-surface-container font-mono text-code-sm" role="group" aria-label="Show incidents">
           {FILTERS.map((f) => (
             <button
@@ -36,14 +39,15 @@ export function AppIncidents({ incidents, onOpen }) {
             </button>
           ))}
         </div>
+        )}
       </header>
 
       {shown.length === 0 ? (
         <p className="px-4 py-8 text-center text-body-md text-on-surface-variant">
-          {incidents.length === 0 ? 'No incidents yet. Try the test panel below.' : 'None here.'}
+          {loading ? 'Loading…' : incidents.length === 0 ? 'No incidents yet. The Test panel can make one.' : 'None here.'}
         </p>
       ) : (
-        <ul className="max-h-[420px] divide-y divide-outline-variant overflow-y-auto">
+        <ul className="divide-y divide-outline-variant">
           {shown.map((i) => (
             <li key={i.id}>
               <IncidentRow incident={i} onOpen={() => onOpen(i.id)} />
@@ -51,6 +55,7 @@ export function AppIncidents({ incidents, onOpen }) {
           ))}
         </ul>
       )}
+      {footer}
     </section>
   );
 }

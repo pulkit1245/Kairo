@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router';
+import { NavLink, Outlet, ScrollRestoration, useLocation } from 'react-router';
 import { usePoll } from '../../hooks/usePoll.js';
 import { listApps, logout } from '../../services/api.js';
 import { useAuth } from '../auth/auth.jsx';
@@ -10,11 +10,14 @@ import { Sidebar } from './Sidebar.jsx';
 const NAV = [{ to: '/', label: 'Apps', end: true }];
 
 // GET /api/apps is polled once here, every 5 s, for the sidebar and the Apps
-// page (through the Outlet's context), so its Prometheus numbers aren't read twice
+// page (through the Outlet's context), so its Prometheus numbers aren't read
+// twice. Only the Apps page shows each app's numbers; elsewhere the sidebar
+// needs health and the cluster card, so the numbers are left out (P5d)
 const POLL_MS = 5000;
 
 export function Layout() {
-  const apps = usePoll(listApps, POLL_MS);
+  const numbers = useLocation().pathname === '/';
+  const apps = usePoll(() => listApps({ numbers }), POLL_MS, [numbers], `apps:${numbers}`);
   return (
     <div className="flex min-h-full">
       <Sidebar apps={apps} />
@@ -34,9 +37,11 @@ export function Layout() {
             <UserMenu />
           </div>
         </header>
-        <main className="flex-1 px-4 py-6 md:px-6">
+        <main className="min-w-0 flex-1 px-4 py-6 md:px-6">
           <Outlet context={apps} />
         </main>
+        {/* a new screen starts at the top; Back returns to where you were */}
+        <ScrollRestoration />
       </div>
     </div>
   );

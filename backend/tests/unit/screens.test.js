@@ -3,6 +3,7 @@ import { afterEach, describe, it } from 'node:test';
 import { prisma } from '../../src/db/index.js';
 import { offersRollback, toAppDto, toReleaseDto } from '../../src/models/dto.mapper.js';
 import { getAppIncidents, INCIDENT_PAGE, neighbourQueries } from '../../src/services/app.service.js';
+import { windowActions } from '../../src/services/metrics.service.js';
 
 // The app's screens (P5d, mockup v2): the header and banner facts, the
 // Releases and Incidents screens' own endpoints, and Newer/Older
@@ -53,6 +54,8 @@ describe('the header and banner facts (GET /api/apps/:slug)', () => {
     const stored = new Set(['img:a', 'img:b']);
     const dto = (releases, s = stored) => toAppDto(appRow(releases), { graceMs: 60_000, storedImages: s });
     assert.equal(dto([active, release('a')]).canRollBack, true);
+    assert.equal(dto([active, release('a'), release('c', { imageRef: 'img:a' })]).rollbackTargets, 2);
+    assert.equal(dto([active]).rollbackTargets, 0);
     assert.equal(dto([active, release('a', { healthyAt: null })]).canRollBack, false, 'never healthy');
     assert.equal(dto([active, release('a')], new Set(['img:b'])).canRollBack, false, 'image pruned');
     assert.equal(dto([active, release('a', { source: 'TEST' })]).canRollBack, false, "Break It's release");
@@ -176,5 +179,26 @@ describe('Newer and Older on the incident page', () => {
   it('two incidents that started in the same second are told apart by id, as the lists order them', () => {
     assert.deepEqual(q.newer.where.OR[1], { startedAt: at(10), id: { gt: 'm' } });
     assert.deepEqual(q.older.where.OR[1], { startedAt: at(10), id: { lt: 'm' } });
+  });
+});
+
+describe("the charts' markers come with the metrics", () => {
+  it("are the app's actions in the window that changed something, oldest first", async () => {
+    let asked;
+    stub(prisma.remediationAttempt, 'findMany', async (args) => {
+      asked = args;
+      return [
+        { action: 'SCALE_UP', result: 'VERIFIED', attemptedAt: at(20), toRelease: null },
+        { action: 'ROLLBACK', result: 'APPLIED', attemptedAt: at(25), toRelease: { commitSha: 'f485a2e3' } },
+      ];
+    });
+    const startSec = at(5).getTime() / 1000;
+    const actions = await windowActions('a1', startSec);
+    assert.deepEqual(asked.where, { incident: { appId: 'a1' }, attemptedAt: { gte: at(5) }, result: { not: 'SKIPPED' } });
+    assert.deepEqual(asked.orderBy, { attemptedAt: 'asc' });
+    assert.deepEqual(actions, [
+      { action: 'SCALE_UP', result: 'VERIFIED', attemptedAt: at(20).toISOString(), toSha: null },
+      { action: 'ROLLBACK', result: 'APPLIED', attemptedAt: at(25).toISOString(), toSha: 'f485a2e3' },
+    ]);
   });
 });

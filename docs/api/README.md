@@ -159,7 +159,7 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
 | `traffic` | Send Traffic's current or last run, or `null` |
 | `incidents` | The app's latest 20 incidents, newest first, shaped as in `GET /api/incidents` (since P3) |
 | `openIncidents`, `incidentCount` | How many of the app's incidents are `OPEN`, and how many it has in all: the tab bar's badge and the Overview's "View all" (since P5d) |
-| `canRollBack` | `true` when some earlier release offers "Roll back to this" (healthy, image stored, not Break It's, not the image running now): the needs-attention banner's "Roll back manually" (since P5d) |
+| `canRollBack`, `rollbackTargets` | Whether, and on how many earlier releases, "Roll back to this" is offered (healthy, image stored, not Break It's, not the image running now): the needs-attention banner's "Roll back manually" and the Overview's active release card (since P5d) |
 | `issue` | `{ number, url }` of the newest incident's GitHub issue (FR-55), or `null`: the banner's "View GitHub issue" (since P5d) |
 
 ## GET /api/apps/:slug/releases
@@ -187,7 +187,7 @@ The Incidents screen and the Overview's latest few (since P5d): the app's incide
 
 ## GET /api/apps/:slug/metrics
 
-The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries against Prometheus (`PROMETHEUS_URL`, the port-forward); nothing in the request becomes query text (FR-57).
+The Overview and Metrics screens' numbers and charts (FR-56), polled every 5 s. The backend runs fixed queries against Prometheus (`PROMETHEUS_URL`, the port-forward); nothing in the request becomes query text (FR-57).
 
 ```json
 {
@@ -195,7 +195,8 @@ The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries
   "now": { "rps": 48.2, "errorRate": 0, "cpuCores": 0.41, "memoryBytes": 52428800, "replicasReady": 2, "replicasDesired": 2, "restarts": 0 },
   "limits": { "cpuCoresPerPod": 0.5, "memoryBytesPerPod": 268435456, "maxReplicas": 3 },
   "series": { "rps": [[1762846215, 0]], "errorRate": [[1762846215, null]], "cpu": [], "memory": [], "replicas": [] },
-  "failed": []
+  "failed": [],
+  "actions": [{ "action": "SCALE_UP", "result": "VERIFIED", "attemptedAt": "…", "toSha": null }]
 }
 ```
 
@@ -210,6 +211,7 @@ The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries
 | `now.restarts` | Container restarts by Kubernetes in the last 30 minutes (Kairo's restarts replace the pod, so they show as incidents instead) |
 | `now.*` | The newest point of each series |
 | `failed` | Names whose query failed; their values are `null` |
+| `actions` | Kairo's actions on the app inside the window, oldest first, drawn on the charts as markers; `SKIPPED` ones changed nothing and are left out. `toSha` is a rollback's target commit (since P5d; read from the database, not Prometheus) |
 
 503 when Prometheus doesn't answer at all.
 

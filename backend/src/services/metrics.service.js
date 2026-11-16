@@ -47,7 +47,7 @@ const NAMES = [...CHARTED, 'desired', 'restarts'];
  * A query that fails comes back null; if they all fail, 503.
  */
 export async function appMetrics(slug, now = Date.now()) {
-  const app = await prisma.app.findFirst({ where: { slug, deletedAt: null }, select: { slug: true, namespace: true } });
+  const app = await prisma.app.findFirst({ where: { slug, deletedAt: null }, select: { id: true, slug: true, namespace: true } });
   if (!app) throw new NotFoundError('App');
   const q = appQueries(app);
   // ends now, not on a whole step: a new sample shows on the next refresh
@@ -60,6 +60,11 @@ export async function appMetrics(slug, now = Date.now()) {
     queryNumber(q.desired),
     queryNumber(q.restarts),
   ];
+  // the charts' markers, from the database, alongside Prometheus
+  const actions = windowActions(app.id, range.startSec).catch((err) => {
+    log.warn(`${slug}: couldn't read the actions for the charts: ${errorMessage(err)}`);
+    return [];
+  });
   const results = await Promise.allSettled(jobs);
   const failed = results.filter((r) => r.status === 'rejected');
   if (failed.length === results.length) {
@@ -90,7 +95,20 @@ export async function appMetrics(slug, now = Date.now()) {
     series,
     // which numbers are missing because their query failed
     failed: NAMES.filter((_, i) => results[i].status === 'rejected'),
+    actions: await actions,
   };
+}
+
+// Kairo's actions in the charts' window, oldest first, drawn as markers (P3b).
+// SKIPPED ones changed nothing, so they aren't drawn. With these the charts
+// don't need the app's incident list (P5d: each screen loads only what it shows)
+export async function windowActions(appId, startSec) {
+  const rows = await prisma.remediationAttempt.findMany({
+    where: { incident: { appId }, attemptedAt: { gte: new Date(startSec * 1000) }, result: { not: 'SKIPPED' } },
+    orderBy: { attemptedAt: 'asc' },
+    select: { action: true, result: true, attemptedAt: true, toRelease: { select: { commitSha: true } } },
+  });
+  return rows.map((a) => ({ action: a.action, result: a.result, attemptedAt: a.attemptedAt.toISOString(), toSha: a.toRelease?.commitSha ?? null }));
 }
 
 /**

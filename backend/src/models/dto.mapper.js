@@ -123,6 +123,7 @@ export function toAppDto(
   const run = row.pipelineRuns?.[0] ?? null;
   const release = (r) => toReleaseDto(r, { graceMs, storedImages, rollbackBlocked });
   const active = row.releases.find((r) => r.status === 'ACTIVE');
+  const rollbackTargets = row.releases.filter((r) => offersRollback(r, active, storedImages)).length;
   return {
     id: row.id,
     slug: row.slug,
@@ -153,7 +154,9 @@ export function toAppDto(
     // the banner and tab bar (P5d), so they don't need the full lists
     openIncidents: counts.open,
     incidentCount: counts.total,
-    canRollBack: row.releases.some((r) => offersRollback(r, active, storedImages)),
+    canRollBack: rollbackTargets > 0,
+    // the Overview's active release card: "Can roll back to 2 releases"
+    rollbackTargets,
     issue: issue?.githubIssueNumber
       ? { number: issue.githubIssueNumber, url: `https://github.com/${row.repoFullName}/issues/${issue.githubIssueNumber}` }
       : null,

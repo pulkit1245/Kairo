@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { screenUrl } from '../app/screens.js';
 import { relativeTime, shortSha } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { incidentKind } from '../app/incident.text.js';
@@ -81,7 +82,7 @@ export function AppCard({ app, now }) {
             <Icon name="open_in_new" className="text-[16px]" /> Open
           </Link>
           {live ? (
-            <Link to={`/apps/${app.slug}#logs`} className={button}>
+            <Link to={screenUrl(app.slug, 'logs')} className={button}>
               <Icon name="terminal" className="text-[16px]" /> Logs
             </Link>
           ) : (
