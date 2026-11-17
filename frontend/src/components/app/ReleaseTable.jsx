@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { rollbackTo } from '../../services/api.js';
-import { relativeTime, shortSha } from '../common/format.js';
+import { relativeTime, shortSha, utcStamp } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { TONE_CLASS } from '../common/status.js';
 
@@ -102,7 +102,7 @@ export function ReleaseTable({ slug, releases, now, onRolledBack }) {
                     {/* Break It's shared image is never pruned, and never a rollback target either */}
                     {!r.imageStored && r.source !== 'TEST' && <span className="block text-code-sm text-on-surface-variant">image pruned</span>}
                   </td>
-                  <td className={`${td} text-on-surface-variant`} title={r.deployedAt}>
+                  <td className={`${td} text-on-surface-variant`} title={utcStamp(r.deployedAt, now)}>
                     {relativeTime(r.deployedAt, now)}
                   </td>
                   <td className={td}>

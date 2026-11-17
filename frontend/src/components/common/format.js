@@ -8,7 +8,7 @@ export function relativeTime(iso, now = Date.now()) {
   if (s < 45) return 'just now';
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(iso).toLocaleDateString();
+  return utcDate(iso);
 }
 
 export function duration(fromIso, toIso) {
@@ -20,9 +20,6 @@ export function duration(fromIso, toIso) {
 // "owner/repo" from https://github.com/owner/repo.git
 export const repoName = (url) => url.replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '');
 
-export const shortTime = (iso) =>
-  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
 // clock times in UTC, as on the Stitch screens: "14:20" or "14:20:12"
 export function utcClock(msOrIso, seconds = false) {
   const d = new Date(msOrIso);
@@ -31,13 +28,18 @@ export function utcClock(msOrIso, seconds = false) {
   return seconds ? `${hm}:${pad(d.getUTCSeconds())}` : hm;
 }
 
+// the day in UTC, never the browser's own zone: "10 Nov"
+export function utcDate(msOrIso) {
+  const d = new Date(msOrIso);
+  return `${d.getUTCDate()} ${d.toLocaleString('en', { month: 'short', timeZone: 'UTC' })}`;
+}
+
 // "14:20:12 UTC", or "Yesterday 18:32:00 UTC", or "10 Nov 18:32:00 UTC"
 export function utcStamp(iso, now = Date.now()) {
   const d = new Date(iso);
   const day = (t) => Math.floor(t / 86_400_000);
   const diff = day(now) - day(d.getTime());
-  const prefix =
-    diff === 0 ? '' : diff === 1 ? 'Yesterday ' : `${d.getUTCDate()} ${d.toLocaleString('en', { month: 'short', timeZone: 'UTC' })} `;
+  const prefix = diff === 0 ? '' : diff === 1 ? 'Yesterday ' : `${utcDate(d)} `;
   return `${prefix}${utcClock(d, true)} UTC`;
 }
 

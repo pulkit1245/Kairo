@@ -72,7 +72,7 @@ function IncidentRow({ incident: i }) {
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-mono text-code-md text-primary" title={i.startedAt}>
+        <span className="font-mono text-code-md text-primary">
           {utcStamp(i.startedAt)}
         </span>
         <span className="font-mono text-code-sm text-on-surface-variant">{isManual(i) ? 'Manual rollback' : i.alertName}</span>
