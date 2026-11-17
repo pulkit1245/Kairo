@@ -24,6 +24,7 @@ const markers = {
     ctx.save();
     ctx.font = "10px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textBaseline = 'top';
+    const panel = themeColor('surface-container-low') || 'transparent';
     // placed labels per row; a label goes on the first row where it fits
     const rows = [];
     for (const m of items) {
@@ -43,7 +44,12 @@ const markers = {
       let row = rows.findIndex((boxes) => boxes.every(([a, b]) => left + w + 4 < a || left > b + 4));
       if (row === -1) row = rows.push([]) - 1;
       rows[row].push([left, left + w]);
-      ctx.fillText(m.label, left, chartArea.top + 2 + row * 12);
+      const y = chartArea.top + 2 + row * 12;
+      // on the panel's colour, so the text reads over grid, limit and marker lines
+      ctx.fillStyle = panel;
+      ctx.fillRect(left - 2, y - 1, w + 4, 12);
+      ctx.fillStyle = m.color;
+      ctx.fillText(m.label, left, y);
     }
     ctx.restore();
   },

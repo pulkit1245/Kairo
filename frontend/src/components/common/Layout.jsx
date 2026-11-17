@@ -23,9 +23,12 @@ export function Layout() {
       <Sidebar apps={apps} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-4 border-b border-outline-variant px-4 py-3 md:px-6">
-          <HealthPills />
-          <div className="flex shrink-0 items-center gap-4">
+        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-outline-variant px-4 py-3 md:flex-nowrap md:px-6">
+          {/* on a phone the pills get a full-width row under the links, not one pill per line beside them */}
+          <div className="order-last w-full md:order-none md:w-auto md:min-w-0">
+            <HealthPills />
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-4">
             {/* mobile: no sidebar, so the nav moves up here */}
             <nav className="flex gap-3 md:hidden" aria-label="Main">
               {NAV.map((item) => (
