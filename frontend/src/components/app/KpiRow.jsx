@@ -11,15 +11,16 @@ const fmt = (n, digits = 0) => (n === null || n === undefined ? '—' : n.toLoca
 function Kpi({ label, icon, value, unit, sub, tone = 'muted', bar, hint }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded border border-outline-variant bg-surface-container-low px-4 py-3" title={hint}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-mono text-code-sm uppercase tracking-wider text-on-surface-variant">{label}</span>
-        <Icon name={icon} className="text-[18px] text-primary" />
+      <div className="flex items-start justify-between gap-2">
+        {/* labels and footnotes wrap (mockup v2), never cut to "REQUESTS / S…" */}
+        <span className="min-w-0 break-words font-mono text-code-sm uppercase tracking-wider text-on-surface-variant">{label}</span>
+        <Icon name={icon} className="shrink-0 text-[18px] text-primary" />
       </div>
-      <div className="flex items-baseline gap-1.5">
+      <div className="flex flex-wrap items-baseline gap-x-1.5">
         <span className="font-mono text-headline-xl font-semibold">{value}</span>
-        {unit && <span className="truncate font-mono text-code-md text-on-surface-variant">{unit}</span>}
+        {unit && <span className="font-mono text-code-md text-on-surface-variant">{unit}</span>}
       </div>
-      <div className={`truncate font-mono text-code-sm ${TONE_CLASS[tone]}`}>{sub}</div>
+      <div className={`break-words font-mono text-code-sm ${TONE_CLASS[tone]}`}>{sub}</div>
       {bar !== undefined && (
         <span className="h-1 w-full overflow-hidden rounded bg-surface-container-highest" aria-hidden="true">
           <span
