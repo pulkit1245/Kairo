@@ -14,7 +14,6 @@ import { MAX_RUNNING_APPS } from './deployment.service.js';
 // How many releases the app page lists. Pruning keeps 3 images (FR-38); the
 // rest stay listed so the history reads right, marked as no longer stored.
 const RELEASES_SHOWN = 10;
-const INCIDENTS_SHOWN = 20;
 
 // GET /api/apps: the Apps list (Stitch 06). Live apps only, deleted ones are
 // hidden (FR-65); apps whose onboarding failed are listed with the failed step.
@@ -50,7 +49,10 @@ export async function listApps({ numbers = true } = {}) {
   return { apps, running: apps.filter((a) => a.release).length, maxRunning: MAX_RUNNING_APPS, cluster: await cluster };
 }
 
-// GET /api/apps/:slug: the app's header and banner (P2c, FR-59)
+// GET /api/apps/:slug: the app's header, banner and tab bar (P2c, FR-59).
+// Since P5d it carries facts, not lists: the counts, the issue and whether a
+// manual rollback has a target, judged over the releases the Releases screen
+// lists, so the banner and that screen always agree.
 export async function getApp(slug) {
   const app = await prisma.app.findFirst({
     where: { slug, deletedAt: null },
@@ -60,8 +62,7 @@ export async function getApp(slug) {
     },
   });
   if (!app) throw new NotFoundError('App');
-  const [incidents, open, total, issue] = await Promise.all([
-    listIncidents(INCIDENTS_SHOWN, { appId: app.id }),
+  const [open, total, issue] = await Promise.all([
     prisma.incident.count({ where: { appId: app.id, status: 'OPEN' } }),
     prisma.incident.count({ where: { appId: app.id } }),
     // the banner's "View GitHub issue": the newest incident that has one (FR-55)
@@ -78,7 +79,6 @@ export async function getApp(slug) {
       storedImages: storedImages(app.releases),
       attentionReason: app.health === 'NEEDS_ATTENTION' ? attentionReason(slug) : null,
       traffic: trafficStatus(slug),
-      incidents,
       tunnel: tunnelState(slug),
       // judged against every release, not just the ones shown (pruning keeps 3)
       rollbackBlocked: (r) => rollbackBlocked(app, r),

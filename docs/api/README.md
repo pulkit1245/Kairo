@@ -121,7 +121,9 @@ The Apps list (since P4, Stitch 06): every app that isn't deleted, running apps 
 
 ## GET /api/apps/:slug
 
-The app page (since P2c): header, active release and the last 10 releases. 404 for an unknown or deleted app.
+The app's own facts for every app screen (since P2c): the header, the active release, the needs-attention banner and the tab bar. 404 for an unknown or deleted app.
+
+Since P5d it carries no lists: the `releases` and `incidents` arrays it had before are gone. The Releases screen loads `GET /api/apps/:slug/releases` and the Incidents screen `GET /api/apps/:slug/incidents`, and what the banner and tab bar need from those lists comes as facts (`openIncidents`, `incidentCount`, `canRollBack`, `rollbackTargets`, `issue`).
 
 ```json
 {
@@ -137,34 +139,38 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
   "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
   "tunnel": "up",
   "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
-  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true },
-  "releases": [ "…same shape, newest first…" ],
+  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true, "rollbackBlockedBy": "this release is the one running now" },
   "pr": { "state": "MERGED", "number": 1, "url": "https://github.com/PunitXd/kairo-node-sample/pull/1", "error": null, "bot": "kairo-devops[bot]" },
-  "watchingGhcr": true
+  "watchingGhcr": true,
+  "traffic": null,
+  "openIncidents": 0,
+  "incidentCount": 24,
+  "canRollBack": true,
+  "rollbackTargets": 2,
+  "issue": { "number": 2, "url": "https://github.com/PunitXd/kairo-node-sample/issues/2" }
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `release` | The `ACTIVE` release, or `null` |
+| `release` | The `ACTIVE` release, or `null`; shaped as one release below |
 | `publicUrl` | The app's public link (FR-40): a Cloudflare quick tunnel to Traefik, saved once it connects and its name resolves. `null` while it starts or restarts, and after a delete. It changes every time the tunnel restarts (FR-41) |
 | `tunnel` | `starting`, `up`, `restarting` (died, a new one within 30 s), or `null` (no tunnel: nothing deployed, or `TUNNELS_ENABLED=false`) |
-| `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
-| `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
-| `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
-| `releases[].rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
+| `release.source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
+| `release.healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
+| `release.imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
+| `release.rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
 | `traffic` | Send Traffic's current or last run, or `null` |
-| `incidents` | The app's latest 20 incidents, newest first, shaped as in `GET /api/incidents` (since P3) |
 | `openIncidents`, `incidentCount` | How many of the app's incidents are `OPEN`, and how many it has in all: the tab bar's badge and the Overview's "View all" (since P5d) |
-| `canRollBack`, `rollbackTargets` | Whether, and on how many earlier releases, "Roll back to this" is offered (healthy, image stored, not Break It's, not the image running now): the needs-attention banner's "Roll back manually" and the Overview's active release card (since P5d) |
+| `canRollBack`, `rollbackTargets` | Whether, and on how many of the releases `GET /api/apps/:slug/releases` lists, "Roll back to this" is offered (healthy, image stored, not Break It's, not the image running now): the needs-attention banner's "Roll back manually" and the Overview's active release card (since P5d) |
 | `issue` | `{ number, url }` of the newest incident's GitHub issue (FR-55), or `null`: the banner's "View GitHub issue" (since P5d) |
 
 ## GET /api/apps/:slug/releases
 
-The Releases screen (since P5d, FR-60, FR-61): the last 10 releases, newest first, each shaped as `releases[]` above, and `total`, how many the app has had. 404 for an unknown or deleted app.
+The Releases screen (since P5d, FR-60, FR-61): the last 10 releases, newest first, each shaped as `release` above, and `total`, how many the app has had. 404 for an unknown or deleted app.
 
 ```json
 { "releases": [ "…" ], "total": 22 }

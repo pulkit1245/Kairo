@@ -101,10 +101,13 @@ export const offersRollback = (r, active, storedImages) =>
 
 /**
  * The app's header and needs-attention banner (P2c, Stitch 07, FR-59).
- * row: an App with `releases` (newest first) and `pipelineRuns` (the latest)
+ * row: an App with `releases` (the ones the Releases screen lists, newest
+ *      first) and `pipelineRuns` (the latest)
  * extra: { graceMs, storedImages, attentionReason, traffic: Send Traffic's
- *          current or last run, incidents: Incident DTOs, tunnel, rollbackBlocked,
+ *          current or last run, tunnel, rollbackBlocked,
  *          counts: { open, total } incidents, issue: the newest incident with a GitHub issue }
+ * Since P5d the full lists are left out: the Releases and Incidents screens
+ * load their own (GET /api/apps/:slug/releases and /incidents).
  */
 export function toAppDto(
   row,
@@ -113,7 +116,6 @@ export function toAppDto(
     storedImages,
     attentionReason = null,
     traffic = null,
-    incidents = [],
     tunnel = null,
     rollbackBlocked = () => 'not offered',
     counts = { open: 0, total: 0 },
@@ -144,13 +146,10 @@ export function toAppDto(
       ? { id: run.id, status: run.status, failedStep: run.failedStep, startedAt: iso(run.startedAt), finishedAt: iso(run.finishedAt) }
       : null,
     release: active ? release(active) : null,
-    releases: row.releases.map(release),
     pr: prDto(row),
     // FR-35: Kairo rolls out new GHCR images once the setup PR is merged
     watchingGhcr: row.prState === 'MERGED',
     traffic,
-    // the app's latest incidents, newest first (P3b), as GET /api/incidents
-    incidents,
     // the banner and tab bar (P5d), so they don't need the full lists
     openIncidents: counts.open,
     incidentCount: counts.total,
