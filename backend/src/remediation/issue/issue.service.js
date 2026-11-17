@@ -80,7 +80,7 @@ async function report(incidentId, attention) {
   const open = await gh.findOpenKairoIssue(installation, owner, repo);
   if (open) {
     await gh.commentOnIssue(installation, owner, repo, open.number, issueText(incident, attention, needsAttention));
-    await saveNumber(incident, open.number);
+    await saveNumber(incident, open.number, false);
     log.info(`${app.slug}: commented on issue #${open.number} (${incident.alertName}${attention ? ', needs attention' : ''})`);
     return 'commented';
   }
@@ -89,14 +89,17 @@ async function report(incidentId, attention) {
     title: issueTitle(app.slug, rolledBack, needsAttention),
     body: `${issueText(incident, attention, needsAttention)}\n\n${FOOTER}`,
   });
-  await saveNumber(incident, issue.number);
+  await saveNumber(incident, issue.number, true);
   log.info(`${app.slug}: opened issue #${issue.number}`);
   return 'opened';
 }
 
-async function saveNumber(incident, number) {
+// the issue, when it was first reported there and how (the incident page's
+// timeline step). A later report on the same issue keeps the first time
+async function saveNumber(incident, number, opened) {
   if (incident.githubIssueNumber === number) return;
-  await db.incident.update({ where: { id: incident.id }, data: { githubIssueNumber: number } }).catch((err) => {
+  const data = { githubIssueNumber: number, githubIssueAt: new Date(), githubIssueOpened: opened };
+  await db.incident.update({ where: { id: incident.id }, data }).catch((err) => {
     log.warn(`could not save issue #${number} on the incident: ${err.message}`);
   });
 }

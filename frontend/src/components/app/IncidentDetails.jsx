@@ -234,6 +234,26 @@ function events(i) {
       list.push({ t: null, title: 'Checking', text: 'Kairo is checking that the action took effect (up to 90 s).', icon: 'progress_activity', tone: 'busy', spin: true });
     }
   }
+  // FR-55: the GitHub issue (mockup v2). Incidents from before P5e have the
+  // number but not the time: their step goes after Kairo's last action
+  // (issues are reported once it acted) and shows no time
+  if (i.githubIssueNumber) {
+    const lastAction = i.attempts.length ? Date.parse(i.attempts.at(-1).attemptedAt) : Date.parse(i.startedAt);
+    list.push({
+      t: i.githubIssueAt,
+      after: i.githubIssueAt ? undefined : lastAction + 1,
+      title: `GitHub issue #${i.githubIssueNumber}`,
+      href: i.githubIssueUrl,
+      text:
+        i.githubIssueOpened === true
+          ? "Kairo opened an issue on the app's repo."
+          : i.githubIssueOpened === false
+            ? "Kairo commented on the app's open issue."
+            : "Kairo reported this incident on the app's issue.",
+      icon: 'bug_report',
+      tone: 'muted',
+    });
+  }
   if (i.resolvedAt) {
     list.push(
       isManual(i)
@@ -241,7 +261,7 @@ function events(i) {
         : { t: i.resolvedAt, title: 'Alert resolved', text: 'Prometheus marked the alert resolved.', icon: 'check_circle', tone: 'ok' },
     );
   }
-  const at = (e) => (e.t ? Date.parse(e.t) : Infinity);
+  const at = (e) => (e.t ? Date.parse(e.t) : (e.after ?? Infinity));
   return list.sort((a, b) => at(a) - at(b));
 }
 
@@ -265,7 +285,13 @@ export function Timeline({ incident }) {
             <div className="flex flex-wrap items-baseline justify-between gap-x-2 font-mono text-code-md">
               <span className={`${TONE_CLASS[e.tone]} uppercase`}>
                 {e.t ? `${utcClock(e.t, true)} UTC · ` : ''}
-                {e.title}
+                {e.href ? (
+                  <a href={e.href} target="_blank" rel="noreferrer" className="hover:underline">
+                    {e.title}
+                  </a>
+                ) : (
+                  e.title
+                )}
               </span>
               {e.t && <span className="shrink-0 text-on-surface-variant">T+{since(start, e.t)}</span>}
             </div>
@@ -307,7 +333,7 @@ export function Attempts({ incident }) {
                     <StatusBadge status={attemptBadge(a)} />
                   </td>
                   <td className="px-3 py-2 text-body-md text-on-surface-variant">{a.reason ?? '—'}</td>
-                  <td className="px-3 py-2 text-right font-mono text-code-md">
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-code-md">
                     {utcClock(a.attemptedAt, true)} UTC
                     {a.verifiedAt && <span className="text-tertiary"> ({duration(a.attemptedAt, a.verifiedAt)})</span>}
                   </td>

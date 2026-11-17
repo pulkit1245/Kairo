@@ -5,7 +5,8 @@ import { Icon } from '../common/Icon.jsx';
 import { TONE_CLASS } from '../common/status.js';
 
 // Releases of one app, newest first (FR-60, Stitch 07 and 10). Earlier
-// releases that were marked healthy and whose image is still stored get
+// releases that were marked healthy and whose image is still stored (the
+// newest of each image, since P5e; the backend sends offersRollback) get
 // "Roll back to this" (FR-61): the same path as an automatic rollback, grace
 // window and 90 s check included, recorded with trigger MANUAL. It asks once
 // before it goes out. The backend says when it can't run now and why
@@ -31,13 +32,7 @@ export function releaseHealth(r, now = Date.now()) {
   return { label: 'Not marked healthy', icon: 'block', tone: 'warn' };
 }
 
-// offered at all: an earlier healthy release with its image (Break It's never
-// is), and not one that runs the same image as the active release
-export const offersRollback = (r, active) =>
-  r.status !== 'ACTIVE' && Boolean(r.healthyAt) && r.imageStored && r.source !== 'TEST' && r.imageRef !== active?.imageRef;
-
 export function ReleaseTable({ slug, releases, now, onRolledBack }) {
-  const running = releases.find((r) => r.status === 'ACTIVE');
   const [confirming, setConfirming] = useState(null);
   const [busy, setBusy] = useState(null);
   const [message, setMessage] = useState(null);
@@ -88,12 +83,22 @@ export function ReleaseTable({ slug, releases, now, onRolledBack }) {
               const active = r.status === 'ACTIVE';
               return (
                 <tr key={r.id} className={active ? 'bg-surface-container' : ''}>
-                  <td className={`${td} font-mono text-code-md ${active ? 'text-primary' : ''}`} title={r.commitSha}>
-                    {shortSha(r.commitSha)}
-                  </td>
+                  {r.source === 'TEST' ? (
+                    // Break It's image isn't built from a commit: the sha it carries is
+                    // the release it replaced, so it isn't shown as if it were its own
+                    <td className={td} title={`Break It's test image ${r.imageRef}; it replaced ${shortSha(r.commitSha)}`}>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 font-mono text-code-sm uppercase tracking-wider text-warning">
+                        <Icon name="science" className="text-[14px]" /> Break It
+                      </span>
+                    </td>
+                  ) : (
+                    <td className={`${td} font-mono text-code-md ${active ? 'text-primary' : ''}`} title={r.commitSha}>
+                      {shortSha(r.commitSha)}
+                    </td>
+                  )}
                   <td className={`${td} text-body-md`}>{r.commitMessage ?? <span className="text-on-surface-variant">—</span>}</td>
                   <td className={`${td} font-mono text-code-md`} title={r.imageRef}>
-                    {r.source === 'GHCR' ? 'GHCR' : r.source === 'TEST' ? 'Break It' : 'Preview'}
+                    {r.source === 'GHCR' ? 'GHCR' : r.source === 'TEST' ? 'Test image' : 'Preview'}
                     {/* Break It's shared image is never pruned, and never a rollback target either */}
                     {!r.imageStored && r.source !== 'TEST' && <span className="block text-code-sm text-on-surface-variant">image pruned</span>}
                   </td>
@@ -116,7 +121,8 @@ export function ReleaseTable({ slug, releases, now, onRolledBack }) {
                     </span>
                   </td>
                   <td className={`${td} text-right`}>
-                    {offersRollback(r, running) && (
+                    {/* the backend picks these: healthy, stored, once per image (FR-61, P5e) */}
+                    {r.offersRollback && (
                       <RollbackButton
                         release={r}
                         confirming={confirming === r.id}

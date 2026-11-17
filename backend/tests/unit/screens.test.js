@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 import { prisma } from '../../src/db/index.js';
-import { offersRollback, toAppDto, toReleaseDto } from '../../src/models/dto.mapper.js';
+import { offersRollback, rollbackOffers, toAppDto, toIncidentDto, toReleaseDto } from '../../src/models/dto.mapper.js';
 import { getAppIncidents, INCIDENT_PAGE, neighbourQueries } from '../../src/services/app.service.js';
 import { windowActions } from '../../src/services/metrics.service.js';
 
@@ -54,7 +54,9 @@ describe('the header and banner facts (GET /api/apps/:slug)', () => {
     const stored = new Set(['img:a', 'img:b']);
     const dto = (releases, s = stored) => toAppDto(appRow(releases), { graceMs: 60_000, storedImages: s });
     assert.equal(dto([active, release('a')]).canRollBack, true);
-    assert.equal(dto([active, release('a'), release('c', { imageRef: 'img:a' })]).rollbackTargets, 2);
+    assert.equal(dto([active, release('a'), release('d', { imageRef: 'img:d' })], new Set(['img:a', 'img:d'])).rollbackTargets, 2);
+    // P5e: one per image, so a commit deployed twice counts once
+    assert.equal(dto([active, release('a'), release('c', { imageRef: 'img:a' })]).rollbackTargets, 1);
     assert.equal(dto([active]).rollbackTargets, 0);
     assert.equal(dto([active, release('a', { healthyAt: null })]).canRollBack, false, 'never healthy');
     assert.equal(dto([active, release('a')], new Set(['img:b'])).canRollBack, false, 'image pruned');
@@ -66,6 +68,29 @@ describe('the header and banner facts (GET /api/apps/:slug)', () => {
     const stored = new Set(['img:a']);
     assert.equal(offersRollback(release('a'), active, stored), true);
     assert.equal(offersRollback(active, active, stored), false);
+  });
+
+  it('offers "Roll back to this" once per image, on its newest offered release', () => {
+    const newer = release('n', { imageRef: 'img:a', deployedAt: at(3) });
+    const older = release('o', { imageRef: 'img:a', deployedAt: at(1) });
+    const unhealthyNewest = release('u', { imageRef: 'img:a', deployedAt: at(4), healthyAt: null });
+    const other = release('x', { deployedAt: at(2) });
+    const ids = rollbackOffers([active, unhealthyNewest, newer, other, older], new Set(['img:a', 'img:x']));
+    assert.deepEqual([...ids].sort(), ['n', 'x'], 'the never-healthy newest is skipped, its older healthy twin offered');
+    const dto = toAppDto(appRow([active, newer, older]), { graceMs: 60_000, storedImages: new Set(['img:a']) });
+    assert.equal(dto.rollbackTargets, 1);
+    const extra = { graceMs: 60_000, storedImages: new Set(['img:a']), offered: rollbackOffers([active, newer, older], new Set(['img:a'])) };
+    assert.deepEqual([newer, older].map((r) => toReleaseDto(r, extra).offersRollback), [true, false]);
+  });
+
+  it("an incident carries when and how Kairo reported it on GitHub", () => {
+    const row = { id: 'i1', appId: 'a1', app: { slug: 'demo', repoFullName: 'someone/demo' }, alertName: 'KairoCrashLoop', cause: 'c', status: 'RESOLVED', startedAt: at(0), resolvedAt: at(1), recoverySeconds: 30, attempts: [] };
+    const reported = toIncidentDto({ ...row, githubIssueNumber: 2, githubIssueAt: at(0), githubIssueOpened: false });
+    assert.equal(reported.githubIssueAt, at(0).toISOString());
+    assert.equal(reported.githubIssueOpened, false);
+    const before = toIncidentDto({ ...row, githubIssueNumber: 2 });
+    assert.equal(before.githubIssueAt, null, 'older incidents have no time');
+    assert.equal(before.githubIssueOpened, null);
   });
 
   it('carries the incident counts and the issue link', () => {

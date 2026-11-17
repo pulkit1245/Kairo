@@ -36,6 +36,9 @@ export function rollbackBlocked(app, release, { now = Date.now() } = {}) {
   // e.g. the same commit deployed twice: rolling back would change nothing
   if (release.imageRef === active.imageRef) return 'it runs the same image as the active release';
   if (release.source === 'TEST' || !release.healthyAt) return 'only releases that were marked healthy can be rolled back to';
+  // the list offers each image once, on its newest healthy release (P5e)
+  const twin = app.releases.some((o) => o.id !== release.id && o.imageRef === release.imageRef && o.deployedAt > release.deployedAt && o.healthyAt && o.source !== 'TEST');
+  if (twin) return 'a newer release runs the same image; roll back to that one';
   if (!storedImages(app.releases).has(release.imageRef)) return 'its image was pruned (Kairo keeps the last 3)';
   if (env.remediationDryRun) return 'REMEDIATION_DRY_RUN is on, so Kairo changes nothing in the cluster';
   if (isRolloutInProgress(app.slug)) return 'a rollout is in progress';

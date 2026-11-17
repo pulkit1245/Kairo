@@ -76,5 +76,7 @@ export const ATTEMPT_RESULTS = Object.freeze([
  * @property {number | null} recoverySeconds null while still open
  * @property {number | null} githubIssueNumber
  * @property {string | null} githubIssueUrl   FR-55, P4d
+ * @property {string | null} githubIssueAt    ISO date Kairo first reported it there (P5e); null before
+ * @property {boolean | null} githubIssueOpened true: Kairo opened the issue; false: commented (P5e)
  * @property {RemediationAttempt[]} attempts oldest first
  */

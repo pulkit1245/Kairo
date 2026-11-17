@@ -139,14 +139,14 @@ Since P5d it carries no lists: the `releases` and `incidents` arrays it had befo
   "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
   "tunnel": "up",
   "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
-  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true, "rollbackBlockedBy": "this release is the one running now" },
+  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true, "rollbackBlockedBy": "this release is the one running now", "offersRollback": false },
   "pr": { "state": "MERGED", "number": 1, "url": "https://github.com/PunitXd/kairo-node-sample/pull/1", "error": null, "bot": "kairo-devops[bot]" },
   "watchingGhcr": true,
   "traffic": null,
   "openIncidents": 0,
   "incidentCount": 24,
   "canRollBack": true,
-  "rollbackTargets": 2,
+  "rollbackTargets": 1,
   "issue": { "number": 2, "url": "https://github.com/PunitXd/kairo-node-sample/issues/2" }
 }
 ```
@@ -160,12 +160,13 @@ Since P5d it carries no lists: the `releases` and `incidents` arrays it had befo
 | `release.healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
 | `release.imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
 | `release.rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
+| `release.offersRollback` | `true` on the releases that get "Roll back to this": earlier, marked healthy, image stored, not Break It's, not the image running now, and only the newest such release of each image, so a commit deployed three times is offered once (since P5e) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
 | `traffic` | Send Traffic's current or last run, or `null` |
 | `openIncidents`, `incidentCount` | How many of the app's incidents are `OPEN`, and how many it has in all: the tab bar's badge and the Overview's "View all" (since P5d) |
-| `canRollBack`, `rollbackTargets` | Whether, and on how many of the releases `GET /api/apps/:slug/releases` lists, "Roll back to this" is offered (healthy, image stored, not Break It's, not the image running now): the needs-attention banner's "Roll back manually" and the Overview's active release card (since P5d) |
+| `canRollBack`, `rollbackTargets` | Whether, and on how many of the releases `GET /api/apps/:slug/releases` lists, "Roll back to this" is offered: the releases with `offersRollback`, one per image since P5e. The needs-attention banner's "Roll back manually" and the Overview's "Can roll back to N releases" (since P5d) |
 | `issue` | `{ number, url }` of the newest incident's GitHub issue (FR-55), or `null`: the banner's "View GitHub issue" (since P5d) |
 
 ## GET /api/apps/:slug/releases
@@ -268,7 +269,7 @@ Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes re
 { "incidentId": "…", "note": "rolled back to 9c8a2b0", "attempt": { "action": "ROLLBACK", "trigger": "MANUAL", "result": "APPLIED", "fromReleaseId": "…", "toReleaseId": "…", "…": "…" } }
 ```
 
-`attempt.result` is `FAILED` if Kubernetes refused the change. 400 without `releaseId`; 404 for an unknown app or release; 409 with the reason (the same text as `rollbackBlockedBy`) for the running release, a release never marked healthy or Break It's, a pruned image or one no longer on the laptop, `REMEDIATION_DRY_RUN`, and during a rollout, a grace window or another action's check.
+`attempt.result` is `FAILED` if Kubernetes refused the change. 400 without `releaseId`; 404 for an unknown app or release; 409 with the reason (the same text as `rollbackBlockedBy`) for the running release, a release never marked healthy or Break It's, an older release of an image a newer healthy release runs (since P5e), a pruned image or one no longer on the laptop, `REMEDIATION_DRY_RUN`, and during a rollout, a grace window or another action's check.
 
 ## DELETE /api/apps/:slug
 
@@ -449,6 +450,8 @@ The latest 50 Incidents, newest first.
   "recoverySeconds": 23,
   "githubIssueNumber": null,
   "githubIssueUrl": null,
+  "githubIssueAt": null,
+  "githubIssueOpened": null,
   "attempts": [
     {
       "id": "cmwakhgb40003sa1y2c7pk1ad",
@@ -475,6 +478,7 @@ The latest 50 Incidents, newest first.
 | `status` | `OPEN`, `RESOLVED` |
 | `alertName` | One of the five Kairo alerts, another alert's name (recorded, no action), or `ManualRollback` for a rollback from the release list (since P4d) |
 | `githubIssueNumber`, `githubIssueUrl` | The app's Kairo issue (label `kairo`) this incident opened or commented on, or `null` (since P4d). An issue opens on a rollback or when Kairo stops acting (`NEEDS_ATTENTION`), never for a restart alone; while it is open, every later incident comments on it (FR-55). Only apps added through the GitHub App get issues. Every issue body and comment ends with a link to the incident's page on Kairo, `<APP_URL>/apps/<slug>/incidents/<id>`, which opens only on the machine running Kairo (FR-42; since P5d) |
+| `githubIssueAt`, `githubIssueOpened` | When Kairo first reported this incident on that issue, and whether it opened the issue (`true`) or commented on the open one (`false`): the incident page's timeline step. `null` on incidents from before P5e |
 | `pod` | The pod the alert named (its `pod` label), or `null` for an app-level alert (since P3) |
 | `recoverySeconds` | Seconds from start to resolve, one decimal; `null` while open |
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |

@@ -73,9 +73,10 @@ function prDto(app) {
 /**
  * One release on the Releases screen and in the app header (P2c, FR-60, FR-61).
  * extra: { graceMs, storedImages: Set of image refs still on the laptop (FR-38),
- *          rollbackBlocked: (release) => null when "Roll back to this" can run now, else why not }
+ *          rollbackBlocked: (release) => null when "Roll back to this" can run now, else why not,
+ *          offered: Set of release ids that get "Roll back to this" (rollbackOffers) }
  */
-export function toReleaseDto(r, { graceMs, storedImages, rollbackBlocked = () => 'not offered' }) {
+export function toReleaseDto(r, { graceMs, storedImages, rollbackBlocked = () => 'not offered', offered = new Set() }) {
   return {
     id: r.id,
     commitSha: r.commitSha,
@@ -91,13 +92,32 @@ export function toReleaseDto(r, { graceMs, storedImages, rollbackBlocked = () =>
     // FR-61: "Roll back to this" is offered on earlier healthy releases whose
     // image is stored; null when it can run now, else why not (e.g. a grace window)
     rollbackBlockedBy: rollbackBlocked(r),
+    // the list shows "Roll back to this" on this release (P5e: once per image)
+    offersRollback: offered.has(r.id),
   };
 }
 
-// FR-61: the release list offers "Roll back to this" on this release. The
-// same rule as the frontend's button; the banner's "Roll back manually" uses it
+// FR-61: a release "Roll back to this" could go to: earlier, marked healthy,
+// image stored, not Break It's, and not the image running now
 export const offersRollback = (r, active, storedImages) =>
   r.status !== 'ACTIVE' && Boolean(r.healthyAt) && storedImages.has(r.imageRef) && r.source !== 'TEST' && r.imageRef !== active?.imageRef;
+
+// The ids of the releases that get "Roll back to this" (P5e): of the ones
+// offersRollback allows, only the newest of each image. The same commit
+// deployed three times is one choice, not three. `releases`: the ones listed,
+// newest first. The banner's "Roll back manually" and "Can roll back to N"
+// count these, so they always match the buttons.
+export function rollbackOffers(releases, storedImages) {
+  const active = releases.find((r) => r.status === 'ACTIVE');
+  const images = new Set();
+  const ids = new Set();
+  for (const r of [...releases].sort((a, b) => b.deployedAt - a.deployedAt)) {
+    if (!offersRollback(r, active, storedImages) || images.has(r.imageRef)) continue;
+    images.add(r.imageRef);
+    ids.add(r.id);
+  }
+  return ids;
+}
 
 /**
  * The app's header and needs-attention banner (P2c, Stitch 07, FR-59).
@@ -123,9 +143,11 @@ export function toAppDto(
   },
 ) {
   const run = row.pipelineRuns?.[0] ?? null;
-  const release = (r) => toReleaseDto(r, { graceMs, storedImages, rollbackBlocked });
+  const offered = rollbackOffers(row.releases, storedImages);
+  const release = (r) => toReleaseDto(r, { graceMs, storedImages, rollbackBlocked, offered });
   const active = row.releases.find((r) => r.status === 'ACTIVE');
-  const rollbackTargets = row.releases.filter((r) => offersRollback(r, active, storedImages)).length;
+  // one per image (P5e)
+  const rollbackTargets = offered.size;
   return {
     id: row.id,
     slug: row.slug,
@@ -225,6 +247,9 @@ export function toIncidentDto(row) {
     githubIssueNumber: row.githubIssueNumber,
     // FR-55: the app's Kairo issue this incident opened or commented on
     githubIssueUrl: row.githubIssueNumber && row.app.repoFullName ? `https://github.com/${row.app.repoFullName}/issues/${row.githubIssueNumber}` : null,
+    // when Kairo first reported it there and whether it opened the issue (P5e); null before
+    githubIssueAt: iso(row.githubIssueAt),
+    githubIssueOpened: row.githubIssueOpened ?? null,
     attempts: [...(row.attempts ?? [])]
       .sort((a, b) => a.attemptedAt - b.attemptedAt)
       .map((a) => ({

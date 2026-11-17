@@ -1,5 +1,5 @@
 import { prisma } from '../db/index.js';
-import { toAppDto, toAppSummaryDto, toIncidentDto, toReleaseDto } from '../models/dto.mapper.js';
+import { rollbackOffers, toAppDto, toAppSummaryDto, toIncidentDto, toReleaseDto } from '../models/dto.mapper.js';
 import { GRACE_MS } from '../shipping/grace.service.js';
 import { storedImages } from '../shipping/prune.service.js';
 import { attentionReason, setAutoHealState } from '../remediation/healing/healing.state.js';
@@ -98,14 +98,18 @@ async function liveApp(slug, include = undefined) {
 // GET /api/apps/:slug/releases: the Releases screen (FR-60, FR-61), newest first
 export async function getAppReleases(slug) {
   const app = await liveApp(slug, { releases: { orderBy: { deployedAt: 'desc' } } });
+  const shown = app.releases.slice(0, RELEASES_SHOWN);
+  const stored = storedImages(app.releases);
   const extra = {
     graceMs: GRACE_MS,
     // judged against every release, not just the ones shown (pruning keeps 3)
-    storedImages: storedImages(app.releases),
+    storedImages: stored,
     rollbackBlocked: (r) => rollbackBlocked(app, r),
+    // over the ones shown, as GET /api/apps/:slug counts them
+    offered: rollbackOffers(shown, stored),
   };
   return {
-    releases: app.releases.slice(0, RELEASES_SHOWN).map((r) => toReleaseDto(r, extra)),
+    releases: shown.map((r) => toReleaseDto(r, extra)),
     total: app.releases.length,
   };
 }
