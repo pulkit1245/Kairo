@@ -121,6 +121,7 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
       action: ran,
       expect: outcome.expect,
       attemptId,
+      attempt,
       attentionAfter: outcome.attentionAfter,
       startedAt: attemptedAt.getTime(),
       token,

@@ -15,6 +15,31 @@ const log = createLogger('verify');
 //
 // The check starts right after the action, before anything is written
 // (FR-74). The attempt row is updated when its id is known.
+//
+// With the database down the attempt has no row yet: it waits in memory with
+// its incident (incident.state.js) and is saved later, as the object it is.
+// A check that ends before then writes its result onto that object, so the
+// later save carries it, and keeps it here; a save that happens while the
+// check still runs, or while the result is being written, reports the row's
+// id through attemptSaved(), which writes the result then (P5f).
+const lateResults = new WeakMap(); // attempt object -> the result its row still needs
+const savedIds = new WeakMap(); // attempt object -> its row id, once saved
+
+/**
+ * The incident service saved a queued attempt (or its incident with it): its
+ * row id is known now. If a check already ended for it, the row gets the
+ * result. Never throws.
+ */
+export async function attemptSaved(attempt, id, db = prisma) {
+  if (!attempt || !id) return;
+  savedIds.set(attempt, id);
+  const data = lateResults.get(attempt);
+  if (!data) return;
+  lateResults.delete(attempt);
+  await db.remediationAttempt.update({ where: { id }, data }).catch((err) => {
+    log.warn(`could not save a late verification: ${errorMessage(err)}`);
+  });
+}
 
 export const VERIFY_MS = 90_000; // FR-73, proposed
 export const POLL_MS = 3000;
@@ -26,6 +51,7 @@ export const POLL_MS = 3000;
  * @param {string} p.action
  * @param {object} p.expect           see actionTookEffect()
  * @param {Promise<string|null>|string|null} p.attemptId
+ * @param {object} [p.attempt]       the attempt as heal() made it, for when it has no row yet
  * @param {string} [p.attentionAfter] verified or not, the app needs attention after (FR-50)
  * @param {number} [p.startedAt]
  * @param {number} [p.token]          heal()'s claim on the app
@@ -68,9 +94,18 @@ export async function verifyAction(p, deps = DEFAULT_DEPS) {
   }
 
   // record second
-  const id = await Promise.resolve(attemptId).catch(() => null);
+  const data = { result, verifiedAt: verdict.done ? new Date() : null, ...(reason && { reason }) };
+  let id = await Promise.resolve(attemptId).catch(() => null);
+  if (!id && p.attempt) {
+    // no row yet (the database was down): the queued attempt carries the result
+    Object.assign(p.attempt, data);
+    id = savedIds.get(p.attempt) ?? null;
+    if (!id) {
+      lateResults.set(p.attempt, data);
+      log.info(`${slug}: ${action} ${result}, saved with the attempt once the database is back`);
+    }
+  }
   if (id) {
-    const data = { result, verifiedAt: verdict.done ? new Date() : null, ...(reason && { reason }) };
     await deps.db.remediationAttempt
       .update({ where: { id }, data })
       .catch(async (err) => {
