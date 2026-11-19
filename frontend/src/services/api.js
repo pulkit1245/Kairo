@@ -10,7 +10,7 @@ export class ApiError extends Error {
 }
 
 // pages anyone may see; a 401 anywhere else means the session ended
-const PUBLIC_PATHS = ['/signin', '/not-invited'];
+const PUBLIC_PATHS = ['/signin', '/home', '/not-invited'];
 
 async function request(path, options = {}) {
   let res;

@@ -12,13 +12,15 @@ import { ReleasesScreen } from './pages/app/ReleasesScreen.jsx';
 import { TestScreen } from './pages/app/TestScreen.jsx';
 import { AppsPage } from './pages/AppsPage.jsx';
 import { DeploymentPage } from './pages/DeploymentPage.jsx';
+import { LandingPage } from './pages/LandingPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { NotInvitedPage } from './pages/NotInvitedPage.jsx';
-import { SignInPage } from './pages/SignInPage.jsx';
 
 const router = createBrowserRouter([
-  // open: how you get a session (FR-1, FR-2)
-  { path: '/signin', element: <SignInPage /> },
+  // open: the landing page and how you get a session (FR-1, FR-2).
+  // /signin sends a signed-in user to the apps; /home (the sidebar logo) never does
+  { path: '/signin', element: <LandingPage /> },
+  { path: '/home', element: <LandingPage home /> },
   { path: '/not-invited', element: <NotInvitedPage /> },
   // everything else needs a signed-in, allow-listed user (FR-42)
   {

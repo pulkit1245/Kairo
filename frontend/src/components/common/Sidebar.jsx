@@ -15,12 +15,13 @@ export function Sidebar({ apps }) {
   return (
     <aside className="hidden w-56 shrink-0 border-r border-outline-variant bg-surface-container-low md:block">
       <div className="sticky top-0 flex h-screen flex-col">
-        <div className="flex items-center gap-2.5 px-4 py-4">
+        {/* the logo opens the landing page (signed in, it shows who you are) */}
+        <Link to="/home" className="flex items-center gap-2.5 px-4 py-4 hover:text-primary">
           <span className="grid size-8 place-items-center rounded bg-primary-container text-on-primary-container">
             <Icon name="deployed_code" className="text-[20px]" />
           </span>
           <span className="text-headline-md font-semibold">Kairo</span>
-        </div>
+        </Link>
         <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-3" aria-label="Main">
           <NavLink
             to="/"
