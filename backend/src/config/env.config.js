@@ -35,6 +35,10 @@ export const env = {
   // where the browser reaches Kairo. GitHub sends people back to
   // <appUrl>/api/auth/callback, which Vite proxies to the backend
   appUrl: (process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, ''),
+  // P6: the backend serves the built dashboard (frontend/dist) itself, so one
+  // Cloudflare tunnel to the backend gives page and API one public address
+  serveFrontend: bool('SERVE_FRONTEND', false),
+  frontendDist: path.resolve(process.env.FRONTEND_DIST || path.join(import.meta.dirname, '../../../frontend/dist')),
 
   // the Kairo GitHub App (FR-1, FR-4). The client secret and the private key
   // are secrets: read here, used by src/github/, never logged
