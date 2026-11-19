@@ -7,8 +7,8 @@ What to start, in what order, what to check, the demo itself step by step, and w
 - **Disk.** Docker Desktop keeps its disk on the external SSD **DockerDisk**. It must be plugged in and mounted (`ls /Volumes/DockerDisk`) before Docker Desktop starts, and stay plugged in. If it drops, everything stops (see "If something goes wrong"). The Mac's own disk should have a few GB free (`df -h /`).
 - **Power and sleep.** Charger in. Turn off sleep on power (System Settings → Battery → Options → "Prevent automatic sleeping on power adapter when the display is off"), or run `caffeinate -dims` in a terminal tab for the whole demo.
 - **Gemini.** The key is on the free tier, about 20 requests a day per model. Don't test anything that calls Gemini on the demo day before the demo. The demo uses about 3 or 4: one explanation per incident (Send Traffic opens one per app that scales, Break It one).
-- **The onboarding repo.** The demo onboards `PunitXd/kairo-dockerfile-sample` and merges its setup PR, `PunitXd/kairo-dockerfile-sample` pull request 1, which is open and has never been merged. Leave that repo and its PR alone until the demo. Rehearsals use another repo (`PunitXd/kairo-demo-rehearsal`, a copy of the node sample), never this one.
-- **The app slots.** Kairo runs at most 3 apps. The demo needs `kairo-node-sample` and `kairo-python-sample` running and one free slot for `kairo-dockerfile-sample`, so delete every other app in Kairo first (its app page → Delete, type its name): `kairo-demo-rehearsal` after a rehearsal, and `kairo-dockerfile-sample` itself if it is still listed. Deleting in Kairo leaves the GitHub repo and its PR alone; the app's history stays and comes back when it is added again.
+- **The onboarding repo.** The live onboarding is `PunitXd/kairo-demo-python`, a copy of `sample-apps/python-sample` with no Dockerfile, Kubernetes or workflow files, so Kairo generates all of them (the Dockerfile for Python is the thing to show). It must be fresh: never onboard it before the demo, and check it is in the Kairo app's installation. `kairo-node-sample` and `kairo-python-sample` stay untouched for Send Traffic and Break It. `PunitXd/kairo-dockerfile-sample` (its pull request 1 open, never merged) is the optional extra at the end. Rehearsals use another repo (`PunitXd/kairo-demo-rehearsal`), never these.
+- **The app slots.** Kairo runs at most 3 apps. The demo needs `kairo-node-sample` and `kairo-python-sample` running and one free slot for `kairo-demo-python`, so delete every other app in Kairo first (its app page → Delete, type its name): `kairo-demo-rehearsal` after a rehearsal, and `kairo-dockerfile-sample` if it is listed. Deleting in Kairo leaves the GitHub repo and its PR alone; the app's history stays and comes back when it is added again.
 
 ## Start, in this order (the morning of the demo)
 
@@ -68,25 +68,26 @@ The local dev server (`npm run dev` in `frontend/`, http://localhost:5173) isn't
 - [ ] The dashboard opens and signs in on the tunnel address from the phone on mobile data (step 8).
 - [ ] Each app's public link opens, from the dashboard (see "Public links").
 - [ ] The phone is on a network that reaches the internet (the public links go through Cloudflare).
-- [ ] GitHub is open in a tab, signed in, on `PunitXd/kairo-dockerfile-sample`.
+- [ ] GitHub is open in a tab, signed in, on `PunitXd/kairo-demo-python`.
 
 ## The demo
 
 The order leads with rollback and scaling, the two things Kubernetes doesn't do by itself.
 
-1. **Sign in and pick a repo.** Apps → Add a repo → `PunitXd/kairo-dockerfile-sample` → Add. ("Give the Kairo app access to it on GitHub" shows how a new repo gets added to the installation.)
-2. **Watch it onboard.** The steps tick through Cloning, Detecting, Generating, Building, Deploying, Running: about **15 to 35 s**. Show "What Kairo found" (each fact with where it came from: "looks like NODE, keeping its Dockerfile") and the generated files.
+1. **Sign in and pick a repo.** Apps → Add a repo → `PunitXd/kairo-demo-python` → Add. ("Give the Kairo app access to it on GitHub" shows how a new repo gets added to the installation.)
+2. **Watch it onboard.** The steps tick through Cloning, Detecting, Generating, Building, Deploying, Running: about **15 to 35 s** (longer if the Python base image isn't pulled yet). Show "What Kairo found" (each fact with where it came from: Python from `requirements.txt`, the start command from `app.py`) and the generated files, above all the **Dockerfile Kairo wrote for Python**.
 3. **The preview.** "Marking healthy in …" counts down the 60 s grace window, then "Marked healthy". Open the public link on the phone.
-4. **The PR.** About 10 s after the healthy mark, the PR card shows Kairo's setup PR from its bot (for `kairo-dockerfile-sample`, its open pull request 1, brought up to date rather than a new one). Open it on GitHub, show the files and the facts in its description, and merge it. GitHub Actions builds the image for amd64 and arm64 and pushes it to GHCR (about 1.5 min); Kairo sees it and rolls it out: **about 1.5 min from the merge to the new release live** (measured 83 and 98 s), then the release is marked healthy 60 s later. The app's Releases tab shows the GHCR release.
-5. **Scaling.** On **`kairo-node-sample` or `kairo-python-sample`** (not the Dockerfile sample: it answers every path with the same small reply, so Send Traffic burns no CPU there and it never scales): Test panel → Send Traffic. 60 s of load. The chart jumps, `KairoHighCpu` fires and Kairo adds a replica **about 1 min after the click** (measured 53 to 64 s). Python may add a third a minute later (its latency alert waits 2 min). Kairo scales back to 1 **6 to 7 min after the load ends** (measured 5 min 47 s and 6 min 31 s); come back to it at the end rather than waiting.
+4. **The PR.** About 10 s after the healthy mark, the PR card shows Kairo's setup PR from its bot. Open it on GitHub, show the files and the facts in its description, and merge it. GitHub Actions builds the image for amd64 and arm64 and pushes it to GHCR (about 1.5 min); Kairo sees it and rolls it out: **about 1.5 min from the merge to the new release live** (measured 83 and 98 s), then the release is marked healthy 60 s later. The app's Releases tab shows the GHCR release.
+5. **Scaling.** On **`kairo-node-sample` or `kairo-python-sample`** (not the freshly onboarded app in its first minute, and never the Dockerfile sample: it answers every path with the same small reply, so Send Traffic burns no CPU there and it never scales): Test panel → Send Traffic. 60 s of load. The chart jumps, `KairoHighCpu` fires and Kairo adds a replica **about 1 min after the click** (measured 53 to 64 s). Python may add a third a minute later (its latency alert waits 2 min). Kairo scales back to 1 **6 to 7 min after the load ends** (measured 5 min 47 s and 6 min 31 s); come back to it at the end rather than waiting.
 6. **Break It.** On `kairo-node-sample`: Test panel → Deploy a broken release → Yes, deploy it. The new release crash-loops; `KairoCrashLoop` fires; Kairo rolls back to the last healthy release **60 s after the click** (it never rolls back inside the 60 s grace window), checks it within 4 s, and the incident is resolved **75 to 95 s after the click** (when Alertmanager next reports the alert resolved). Open the incident page: what happened (Gemini's explanation, a few seconds after the incident opens), the timeline, the attempt with its check, and the GitHub issue step. Open the issue on GitHub: Kairo's comment links back to the incident page.
 7. **Back to scaling.** The Overview or Metrics of the app from step 5: replicas back to 1, with Kairo's actions marked on the chart.
+8. **Optional, if time allows: a kept Dockerfile.** Once `kairo-demo-python`'s PR is merged and live, delete it in Kairo (its app page → Delete, type its name) to free the slot, then Apps → Add a repo → `PunitXd/kairo-dockerfile-sample` → Add. "What Kairo found" says it keeps the repo's own Dockerfile ("looks like NODE, keeping its Dockerfile"), and its setup PR is the open pull request 1, brought up to date rather than a new one. Don't merge it unless there is time for the 1.5 min rollout.
 
 ## After the demo
 
 - On the college PC: sign out of Kairo and of GitHub (step 9).
 - Nothing has to be stopped. To stop: Ctrl-C in the backend tab (it closes its port-forward and the app tunnels) and in the public tunnel tab, then quit Docker Desktop.
-- The onboarded `kairo-dockerfile-sample` stays as an app; delete it in Kairo if the slot is needed.
+- The onboarded `kairo-demo-python` (or `kairo-dockerfile-sample`) stays as an app; delete it in Kairo if the slot is needed.
 
 ## Public links
 
