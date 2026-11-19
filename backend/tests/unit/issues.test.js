@@ -47,6 +47,7 @@ function fakes(rows, { openIssue = null } = {}) {
       findUnique: async ({ where }) => rows[where.id] ?? null,
       update: async ({ where, data }) => {
         calls.saved.push([where.id, data.githubIssueNumber]);
+        calls.savedData = data;
         rows[where.id] = { ...rows[where.id], ...data };
       },
     },
@@ -92,7 +93,11 @@ describe('GitHub issues (FR-55)', () => {
     assert.equal(`${issue.owner}/${issue.repo}`, 'someone/demo');
     assert.equal(issue.title, 'Kairo rolled back demo');
     assert.match(issue.body, /Rolled back from the Break It release to `bbbbbbb`/);
+    assert.ok(issue.body.includes(`[this incident](${env.appUrl}/apps/demo/incidents/i1)`), 'links to the incident page');
     assert.deepEqual(calls.saved, [['i1', 7]]);
+    // the incident page's timeline step: when, and that Kairo opened it (P5e)
+    assert.equal(calls.savedData.githubIssueOpened, true);
+    assert.ok(calls.savedData.githubIssueAt instanceof Date);
   });
 
   it('a later incident comments on the open issue instead of opening another', async () => {
@@ -102,7 +107,19 @@ describe('GitHub issues (FR-55)', () => {
     assert.equal(calls.opened.length, 0);
     assert.equal(calls.comments[0].number, 3);
     assert.match(calls.comments[0].body, /Restarted the pod, verified/);
+    assert.ok(calls.comments[0].body.includes(`[this incident](${env.appUrl}/apps/demo/incidents/i1)`), 'comments link too');
     assert.deepEqual(calls.saved, [['i1', 3]]);
+    assert.equal(calls.savedData.githubIssueOpened, false, 'commented, not opened');
+  });
+
+  it("the incident link is the dashboard's own address, local only, and the link comes last", () => {
+    const text = issueText(incidentRow({ id: 'c1x', app: { slug: 'my app' } }), null, false);
+    const last = text.split('\n').at(-1);
+    assert.equal(
+      last,
+      `Details on Kairo: [this incident](${env.appUrl}/apps/my%20app/incidents/c1x) (opens on the machine that runs Kairo; its dashboard is never public).`,
+    );
+    assert.doesNotMatch(env.appUrl, /\/$/);
   });
 
   it('a restart on a healthy app with no open issue stays on the dashboard', async () => {
@@ -212,6 +229,13 @@ describe('manual rollback (FR-60, FR-61)', () => {
     assert.match(rollbackBlocked(app, { ...older, source: 'TEST' }), /marked healthy/);
     const many = { slug: 'demo', releases: [active, older, rel('r1', { deployedAt: new Date(at.getTime() - 3000) }), rel('r0', { deployedAt: new Date(at.getTime() - 4000) })] };
     assert.match(rollbackBlocked(many, many.releases[3]), /pruned/);
+  });
+
+  it('refuses an older release of an image a newer healthy release runs (P5e: once per image)', () => {
+    const twin = rel('r1', { imageRef: older.imageRef, deployedAt: at });
+    const withTwin = { slug: 'demo', releases: [active, older, twin] };
+    assert.match(rollbackBlocked(withTwin, twin), /newer release runs the same image/);
+    assert.equal(rollbackBlocked(withTwin, older), null, 'the newest of that image is still offered');
   });
 
   it('waits for a rollout, a grace window or another check to end', () => {

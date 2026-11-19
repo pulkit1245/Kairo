@@ -228,6 +228,11 @@ model Incident {
   // stored when the incident resolves. the number the demo is about
   recoverySeconds   Float?
   githubIssueNumber Int?
+  // when Kairo first reported this incident on that issue, and whether it
+  // opened the issue (true) or commented on the open one (false). Since P5e;
+  // null on older incidents
+  githubIssueAt     DateTime?
+  githubIssueOpened Boolean?
 
   attempts RemediationAttempt[]
 

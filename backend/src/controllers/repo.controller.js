@@ -1,5 +1,5 @@
 import { retrySetupPr } from '../generator/pr/pr.service.js';
-import { deleteApp, getApp, listApps, sendTraffic, updateApp } from '../services/app.service.js';
+import { deleteApp, getApp, getAppIncidents, getAppReleases, listApps, sendTraffic, updateApp } from '../services/app.service.js';
 import { appLogs } from '../services/logs.service.js';
 import { appMetrics } from '../services/metrics.service.js';
 import { manualRollback } from '../remediation/healing/rollback.service.js';
@@ -12,9 +12,9 @@ export async function list(req, res) {
   res.json(await listRepos(req.user.id));
 }
 
-// GET /api/apps: the Apps list (Stitch 06)
+// GET /api/apps: the Apps list (Stitch 06). ?numbers=false: no per-app figures (the sidebar)
 export async function index(req, res) {
-  res.json(await listApps());
+  res.json(await listApps({ numbers: req.query.numbers !== 'false' }));
 }
 
 // POST /api/apps { repoFullName }: start onboarding from a picked repo (FR-3)
@@ -29,9 +29,19 @@ export async function retryPr(req, res) {
   res.json(await retrySetupPr(req.user.id, req.params.slug));
 }
 
-// GET /api/apps/:slug: the app page (Stitch 07 header)
+// GET /api/apps/:slug: the app's header and banner (Stitch 07, FR-59)
 export async function show(req, res) {
   res.json(await getApp(req.params.slug));
+}
+
+// GET /api/apps/:slug/incidents?limit=&before=: the Incidents screen (P5d)
+export async function incidents(req, res) {
+  res.json(await getAppIncidents(req.params.slug, { limit: req.query.limit, before: req.query.before }));
+}
+
+// GET /api/apps/:slug/releases: the Releases screen (FR-60, FR-61)
+export async function releases(req, res) {
+  res.json(await getAppReleases(req.params.slug));
 }
 
 // PATCH /api/apps/:slug { autoHeal } (FR-51)

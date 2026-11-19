@@ -17,7 +17,7 @@ export function LogsPanel({ slug }) {
   const [frozen, setFrozen] = useState(null);
   const paused = frozen !== null;
   const [filter, setFilter] = useState('');
-  const live = usePoll(() => getAppLogs(slug), paused ? null : POLL_MS, [slug, paused]);
+  const live = usePoll(() => getAppLogs(slug), paused ? null : POLL_MS, [slug, paused], `logs:${slug}`);
   const data = frozen ?? live.data;
   const error = live.error;
   const box = useRef(null);

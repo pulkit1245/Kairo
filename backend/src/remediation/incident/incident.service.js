@@ -10,6 +10,7 @@ import { shortError } from '../../utils/AppError.js';
 import { createLogger } from '../../utils/logger.js';
 import { decideAction } from '../action/decision.service.js';
 import { heal } from '../healing/heal.service.js';
+import { attemptSaved } from '../healing/verify.service.js';
 import { reportIncident } from '../issue/issue.service.js';
 import * as memory from './incident.state.js';
 
@@ -261,7 +262,8 @@ export async function flushUnsaved() {
       try {
         if (item.kind === 'save') await createIncident(item.record, item.resolvedAt);
         else if (item.kind === 'attempt') {
-          await prisma.remediationAttempt.create({ data: { incidentId: item.incidentId, ...item.attempt } });
+          const row = await prisma.remediationAttempt.create({ data: { incidentId: item.incidentId, ...item.attempt }, select: { id: true } });
+          await attemptSaved(item.attempt, row.id);
         } else await resolveRows(item.fingerprint, item.resolvedAt);
         saved++;
       } catch {
@@ -283,7 +285,7 @@ async function createIncident(record, resolvedAt = null) {
     (await prisma.app.findFirst({ where: { slug: record.slug, deletedAt: null }, select: { id: true } }))?.id;
   if (!appId) throw new Error(`no app ${record.slug} in the database`);
 
-  return prisma.incident.create({
+  const row = await prisma.incident.create({
     data: {
       appId,
       fingerprint: record.fingerprint,
@@ -300,6 +302,9 @@ async function createIncident(record, resolvedAt = null) {
     },
     select: { id: true, attempts: { select: { id: true } } },
   });
+  // a check that ended while this attempt had no row writes its result now
+  await attemptSaved(record.attempt, row.attempts?.[0]?.id);
+  return row;
 }
 
 // Runs a database write, retrying once after a short wait (FR-74). Returns the
@@ -332,10 +337,13 @@ const WITH_ATTEMPTS = {
   },
 };
 
-export async function listIncidents(limit = 50, where = {}) {
+// `after`: an incident id; the list then starts just past it ("Show older")
+export async function listIncidents(limit = 50, where = {}, after = undefined) {
   const rows = await prisma.incident.findMany({
     where,
-    orderBy: { startedAt: 'desc' },
+    ...(after ? { cursor: { id: after }, skip: 1 } : {}),
+    // id breaks ties (two alerts in the same second), as Newer/Older do
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
     take: limit,
     include: WITH_ATTEMPTS,
   });

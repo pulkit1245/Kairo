@@ -4,20 +4,19 @@ import { ChartCanvas } from '../operations/ChartCanvas.jsx';
 import { themeColor } from '../operations/chart.setup.js';
 import { actionText } from './incident.text.js';
 
-// The two charts of the app page (FR-56, Stitch 07): traffic and error rate,
-// CPU and memory, over the last 30 minutes. Kairo's actions in that window
-// are drawn as dashed lines, so a scale-up shows up right where the load is.
+// The app's two charts (FR-56, Stitch 07): traffic and error rate, CPU and
+// memory, over the last 30 minutes. Kairo's actions in that window come with
+// the metrics (`actions`) and are drawn as dashed lines, so a scale-up shows
+// up right where the load is. The Overview shows only the traffic chart; the
+// Metrics screen shows both.
 
 const MiB = 1024 * 1024;
 const points = (series, f = (v) => v) => (series ?? []).map(([t, v]) => ({ x: t * 1000, y: v === null ? null : f(v) }));
 
 // Kairo's actions in the window, as markers
-function actionMarkers(incidents, win) {
-  const from = win.startSec * 1000;
-  return incidents
-    .flatMap((i) => i.attempts.filter((a) => a.result !== 'SKIPPED').map((a) => ({ a, t: Date.parse(a.attemptedAt) })))
-    .filter(({ t }) => t >= from)
-    .sort((x, y) => x.t - y.t)
+function actionMarkers(actions) {
+  return (actions ?? [])
+    .map((a) => ({ a, t: Date.parse(a.attemptedAt) }))
     .map(({ a, t }) => ({
       x: t,
       label: `${actionText(a).split(' to ')[0]} ${utcClock(t)}`,
@@ -72,14 +71,15 @@ function ChartBox({ title, legend, children }) {
   );
 }
 
-export function MetricCharts({ metrics, incidents, error }) {
+/** charts: which to show, 'traffic' and/or 'resources'; height of each, in px */
+export function MetricCharts({ metrics, error, charts = ['traffic', 'resources'], height = 220 }) {
   const win = metrics?.window;
   const colors = useMemo(
     () => ({ traffic: themeColor('secondary'), errors: themeColor('error'), cpu: themeColor('tertiary'), memory: themeColor('primary'), limit: themeColor('error') }),
     [],
   );
 
-  const markers = useMemo(() => (win ? actionMarkers(incidents, win) : []), [incidents, win]);
+  const markers = useMemo(() => (win ? actionMarkers(metrics.actions) : []), [metrics, win]);
 
   const traffic = useMemo(() => {
     if (!metrics) return null;
@@ -139,13 +139,14 @@ export function MetricCharts({ metrics, incidents, error }) {
   }, [metrics, markers, colors]);
 
   const empty = (
-    <p className="grid h-[220px] place-items-center text-center text-body-md text-on-surface-variant">
+    <p style={{ height }} className="grid place-items-center text-center text-body-md text-on-surface-variant">
       {error ? error.message : 'Loading…'}
     </p>
   );
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
+    <div className="flex flex-col gap-3">
+      {charts.includes('traffic') && (
       <ChartBox
         title="Traffic & error rate · last 30 min"
         legend={[
@@ -154,11 +155,13 @@ export function MetricCharts({ metrics, incidents, error }) {
         ]}
       >
         {traffic ? (
-          <ChartCanvas type="line" data={traffic.data} options={traffic.options} label="Requests per second and error rate over the last 30 minutes" />
+          <ChartCanvas type="line" height={height} data={traffic.data} options={traffic.options} label="Requests per second and error rate over the last 30 minutes" />
         ) : (
           empty
         )}
       </ChartBox>
+      )}
+      {charts.includes('resources') && (
       <ChartBox
         title="CPU & memory · last 30 min"
         legend={[
@@ -168,11 +171,12 @@ export function MetricCharts({ metrics, incidents, error }) {
         ]}
       >
         {resources ? (
-          <ChartCanvas type="line" data={resources.data} options={resources.options} label="CPU and memory over the last 30 minutes" />
+          <ChartCanvas type="line" height={height} data={resources.data} options={resources.options} label="CPU and memory over the last 30 minutes" />
         ) : (
           empty
         )}
       </ChartBox>
+      )}
     </div>
   );
 }

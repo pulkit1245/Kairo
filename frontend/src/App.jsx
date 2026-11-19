@@ -2,16 +2,25 @@ import { createBrowserRouter, RouterProvider } from 'react-router';
 import { RequireAuth } from './components/auth/auth.jsx';
 import { Layout } from './components/common/Layout.jsx';
 import { AddRepoPage } from './pages/AddRepoPage.jsx';
-import { AppPage } from './pages/AppPage.jsx';
+import { AppScreensRoute } from './pages/app/AppScreens.jsx';
+import { IncidentPageRoute } from './pages/app/IncidentPage.jsx';
+import { IncidentsScreen } from './pages/app/IncidentsScreen.jsx';
+import { LogsScreen } from './pages/app/LogsScreen.jsx';
+import { MetricsScreen } from './pages/app/MetricsScreen.jsx';
+import { OverviewScreen } from './pages/app/OverviewScreen.jsx';
+import { ReleasesScreen } from './pages/app/ReleasesScreen.jsx';
+import { TestScreen } from './pages/app/TestScreen.jsx';
 import { AppsPage } from './pages/AppsPage.jsx';
 import { DeploymentPage } from './pages/DeploymentPage.jsx';
+import { LandingPage } from './pages/LandingPage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { NotInvitedPage } from './pages/NotInvitedPage.jsx';
-import { SignInPage } from './pages/SignInPage.jsx';
 
 const router = createBrowserRouter([
-  // open: how you get a session (FR-1, FR-2)
-  { path: '/signin', element: <SignInPage /> },
+  // open: the landing page and how you get a session (FR-1, FR-2).
+  // /signin sends a signed-in user to the apps; /home (the sidebar logo) never does
+  { path: '/signin', element: <LandingPage /> },
+  { path: '/home', element: <LandingPage home /> },
   { path: '/not-invited', element: <NotInvitedPage /> },
   // everything else needs a signed-in, allow-listed user (FR-42)
   {
@@ -23,7 +32,22 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <AppsPage /> },
       { path: '/apps/new', element: <AddRepoPage /> },
-      { path: '/apps/:slug', element: <AppPage /> },
+      // an app's screens (P5d, mockup v2), each at its own address
+      {
+        path: '/apps/:slug',
+        element: <AppScreensRoute />,
+        children: [
+          { index: true, element: <OverviewScreen /> },
+          { path: 'incidents', element: <IncidentsScreen /> },
+          { path: 'metrics', element: <MetricsScreen /> },
+          { path: 'logs', element: <LogsScreen /> },
+          { path: 'releases', element: <ReleasesScreen /> },
+          { path: 'test', element: <TestScreen /> },
+          { path: '*', element: <NotFoundPage /> },
+        ],
+      },
+      // one incident as its own page (was the drawer); GitHub issues link here
+      { path: '/apps/:slug/incidents/:id', element: <IncidentPageRoute /> },
       { path: '/deployments/:id', element: <DeploymentPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

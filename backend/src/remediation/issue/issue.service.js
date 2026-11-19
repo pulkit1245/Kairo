@@ -1,4 +1,4 @@
-import { githubConfigured } from '../../config/env.config.js';
+import { env, githubConfigured } from '../../config/env.config.js';
 import { prisma } from '../../db/index.js';
 import * as github from '../../github/github.client.js';
 import { MANUAL_ROLLBACK } from '../../types/incident.types.js';
@@ -80,7 +80,7 @@ async function report(incidentId, attention) {
   const open = await gh.findOpenKairoIssue(installation, owner, repo);
   if (open) {
     await gh.commentOnIssue(installation, owner, repo, open.number, issueText(incident, attention, needsAttention));
-    await saveNumber(incident, open.number);
+    await saveNumber(incident, open.number, false);
     log.info(`${app.slug}: commented on issue #${open.number} (${incident.alertName}${attention ? ', needs attention' : ''})`);
     return 'commented';
   }
@@ -89,14 +89,17 @@ async function report(incidentId, attention) {
     title: issueTitle(app.slug, rolledBack, needsAttention),
     body: `${issueText(incident, attention, needsAttention)}\n\n${FOOTER}`,
   });
-  await saveNumber(incident, issue.number);
+  await saveNumber(incident, issue.number, true);
   log.info(`${app.slug}: opened issue #${issue.number}`);
   return 'opened';
 }
 
-async function saveNumber(incident, number) {
+// the issue, when it was first reported there and how (the incident page's
+// timeline step). A later report on the same issue keeps the first time
+async function saveNumber(incident, number, opened) {
   if (incident.githubIssueNumber === number) return;
-  await db.incident.update({ where: { id: incident.id }, data: { githubIssueNumber: number } }).catch((err) => {
+  const data = { githubIssueNumber: number, githubIssueAt: new Date(), githubIssueOpened: opened };
+  await db.incident.update({ where: { id: incident.id }, data }).catch((err) => {
     log.warn(`could not save issue #${number} on the incident: ${err.message}`);
   });
 }
@@ -160,8 +163,14 @@ export function issueText(incident, attention, needsAttention) {
   if (incident.attempts.length) lines.push('', '**What Kairo did:**', ...incident.attempts.map(attemptLine));
   if (attention) lines.push('', `**Kairo stopped acting on the app:** ${attention}. It needs a look.`);
   else if (needsAttention && !manual) lines.push('', '**The app needs attention:** Kairo is not acting on it until it clears.');
+  lines.push('', `Details on Kairo: [this incident](${incidentLink(incident)}) (opens on the machine that runs Kairo; its dashboard is never public).`);
   return lines.join('\n');
 }
+
+// the incident's own page on the dashboard (P5d). APP_URL is the dashboard's
+// address, the same one GitHub sign-in returns to
+export const incidentLink = (incident) =>
+  `${env.appUrl}/apps/${encodeURIComponent(incident.app.slug)}/incidents/${encodeURIComponent(incident.id)}`;
 
 // tests
 export function _setDeps({ github: g = github, db: d = prisma } = {}) {

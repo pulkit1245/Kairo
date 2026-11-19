@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { env } from '../../src/config/env.config.js';
 import { prisma } from '../../src/db/index.js';
 import { pickRollbackTarget } from '../../src/remediation/action/executor.service.js';
 import { heal } from '../../src/remediation/healing/heal.service.js';
@@ -103,6 +104,28 @@ describe('the healing gate (FR-48, FR-51, FR-73)', () => {
     assert.equal(state.isVerifying('demo'), true);
     state.releaseAction('demo', rollback);
     assert.equal(state.isVerifying('demo'), false);
+  });
+});
+
+describe('give-up count under concurrent alerts (FR-48)', () => {
+  it('counts an attempt when it is claimed, so two alerts together cannot pass 3', async () => {
+    const dry = env.remediationDryRun;
+    env.remediationDryRun = true; // the executor answers SKIPPED (dry run) without touching the cluster
+    try {
+      const now = Date.now();
+      state.countAttempt('demo', now - 60_000);
+      state.countAttempt('demo', now - 30_000);
+      // a restart and a rollback for the same app, both started before either finishes
+      const restart = heal(app, 'RESTART', { pod: 'p1' });
+      const rollback = heal(app, 'ROLLBACK', {});
+      const [r1, r2] = await Promise.all([restart, rollback]);
+      assert.equal(r1.note, 'dry run');
+      assert.match(r2.note, /gave up: 3 attempts in 10 minutes/);
+      // the restart didn't run (dry run), so its count was given back
+      assert.equal(state.recentAttempts('demo'), 2);
+    } finally {
+      env.remediationDryRun = dry;
+    }
   });
 });
 

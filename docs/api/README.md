@@ -116,11 +116,14 @@ The Apps list (since P4, Stitch 06): every app that isn't deleted, running apps 
 | `now.cpuShare` | CPU of all pods as a share of what the ready pods may use (0.5 core each) |
 | `running` | Apps with an `ACTIVE` release; `maxRunning` is the limit (FR-9) |
 | `openIncidents` | The app's incidents still `OPEN`, for the sidebar's badge (since P4) |
+| `?numbers=false` | Leaves out each app's `now` (it is `null`), so no per-app Prometheus queries run. The sidebar uses it on the app screens, where it shows only health and the cluster card; the Apps page asks for the numbers (since P5d) |
 | `cluster` | The sidebar's cluster card (since P4): the node's CPU in cores and memory in bytes in use, against what Kubernetes can give pods (`kube_node_status_allocatable`). Three Prometheus queries run at once with a 2 s timeout, alongside the list; each value is `null` when its query failed or timed out, and the apps are returned either way |
 
 ## GET /api/apps/:slug
 
-The app page (since P2c): header, active release and the last 10 releases. 404 for an unknown or deleted app.
+The app's own facts for every app screen (since P2c): the header, the active release, the needs-attention banner and the tab bar. 404 for an unknown or deleted app.
+
+Since P5d it carries no lists: the `releases` and `incidents` arrays it had before are gone. The Releases screen loads `GET /api/apps/:slug/releases` and the Incidents screen `GET /api/apps/:slug/incidents`, and what the banner and tab bar need from those lists comes as facts (`openIncidents`, `incidentCount`, `canRollBack`, `rollbackTargets`, `issue`).
 
 ```json
 {
@@ -136,31 +139,62 @@ The app page (since P2c): header, active release and the last 10 releases. 404 f
   "publicUrl": "https://rebecca-teeth-carriers-disclose.trycloudflare.com",
   "tunnel": "up",
   "pipeline": { "id": "…", "status": "RUNNING", "failedStep": null, "startedAt": "…", "finishedAt": "…" },
-  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true },
-  "releases": [ "…same shape, newest first…" ],
+  "release": { "id": "…", "commitSha": "…", "commitMessage": "Change the greeting", "imageRef": "ghcr.io/punitxd/kairo-node-sample:…", "source": "GHCR", "status": "ACTIVE", "deployedAt": "…", "healthyAt": null, "graceEndsAt": "…", "imageStored": true, "rollbackBlockedBy": "this release is the one running now", "offersRollback": false },
   "pr": { "state": "MERGED", "number": 1, "url": "https://github.com/PunitXd/kairo-node-sample/pull/1", "error": null, "bot": "kairo-devops[bot]" },
-  "watchingGhcr": true
+  "watchingGhcr": true,
+  "traffic": null,
+  "openIncidents": 0,
+  "incidentCount": 24,
+  "canRollBack": true,
+  "rollbackTargets": 1,
+  "issue": { "number": 2, "url": "https://github.com/PunitXd/kairo-node-sample/issues/2" }
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `release` | The `ACTIVE` release, or `null` |
+| `release` | The `ACTIVE` release, or `null`; shaped as one release below |
 | `publicUrl` | The app's public link (FR-40): a Cloudflare quick tunnel to Traefik, saved once it connects and its name resolves. `null` while it starts or restarts, and after a delete. It changes every time the tunnel restarts (FR-41) |
 | `tunnel` | `starting`, `up`, `restarting` (died, a new one within 30 s), or `null` (no tunnel: nothing deployed, or `TUNNELS_ENABLED=false`) |
-| `releases[].source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
-| `releases[].healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
-| `releases[].imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
-| `releases[].rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
+| `release.source` | `PREVIEW` (built on the laptop during onboarding), `GHCR` (built by the repo's workflow, rolled out by Kairo) or `TEST` (Break It's release that exits on start, since P3) |
+| `release.healthyAt` | Set once the release passed its 60 s grace window (FR-72); `graceEndsAt` is when that window ends |
+| `release.imageStored` | `false` once its image was pruned (only the last 3 releases keep theirs, FR-38) |
+| `release.rollbackBlockedBy` | `null` when "Roll back to this" can run now; otherwise why not, e.g. "this release is the one running now", "only releases that were marked healthy can be rolled back to", "the current release is still in its 60 s grace window" (since P4d) |
+| `release.offersRollback` | `true` on the releases that get "Roll back to this": earlier, marked healthy, image stored, not Break It's, not the image running now, and only the newest such release of each image, so a commit deployed three times is offered once (since P5e) |
 | `watchingGhcr` | `true` once the setup PR is merged: every 30 s Kairo checks GHCR for the default branch's newest commit (FR-35) |
 | `health` | `HEALTHY`, `HEALING` (an action is being checked) or `NEEDS_ATTENTION` (Kairo stopped acting, since P3) |
 | `attentionReason` | Why it needs attention, e.g. "3 attempts in 10 minutes didn't fix it"; `null` otherwise or after a backend restart |
 | `traffic` | Send Traffic's current or last run, or `null` |
-| `incidents` | The app's latest 20 incidents, newest first, shaped as in `GET /api/incidents` (since P3) |
+| `openIncidents`, `incidentCount` | How many of the app's incidents are `OPEN`, and how many it has in all: the tab bar's badge and the Overview's "View all" (since P5d) |
+| `canRollBack`, `rollbackTargets` | Whether, and on how many of the releases `GET /api/apps/:slug/releases` lists, "Roll back to this" is offered: the releases with `offersRollback`, one per image since P5e. The needs-attention banner's "Roll back manually" and the Overview's "Can roll back to N releases" (since P5d) |
+| `issue` | `{ number, url }` of the newest incident's GitHub issue (FR-55), or `null`: the banner's "View GitHub issue" (since P5d) |
+
+## GET /api/apps/:slug/releases
+
+The Releases screen (since P5d, FR-60, FR-61): the last 10 releases, newest first, each shaped as `release` above, and `total`, how many the app has had. 404 for an unknown or deleted app.
+
+```json
+{ "releases": [ "…" ], "total": 22 }
+```
+
+## GET /api/apps/:slug/incidents
+
+The Incidents screen and the Overview's latest few (since P5d): the app's incidents, newest first (two that started in the same second are ordered by id), each shaped as in `GET /api/incidents`. 404 for an unknown or deleted app.
+
+| Query | Meaning |
+| --- | --- |
+| `limit` | How many, 1 to 50; 25 when left out. 400 otherwise |
+| `before` | An incident id from this app: the list starts just after it ("Show older"). 400 for an id that isn't this app's |
+
+```json
+{ "incidents": [ "…" ], "more": true }
+```
+
+`more` is `true` when there are older incidents past the last one returned.
 
 ## GET /api/apps/:slug/metrics
 
-The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries against Prometheus (`PROMETHEUS_URL`, the port-forward); nothing in the request becomes query text (FR-57).
+The Overview and Metrics screens' numbers and charts (FR-56), polled every 5 s. The backend runs fixed queries against Prometheus (`PROMETHEUS_URL`, the port-forward); nothing in the request becomes query text (FR-57).
 
 ```json
 {
@@ -168,7 +202,8 @@ The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries
   "now": { "rps": 48.2, "errorRate": 0, "cpuCores": 0.41, "memoryBytes": 52428800, "replicasReady": 2, "replicasDesired": 2, "restarts": 0 },
   "limits": { "cpuCoresPerPod": 0.5, "memoryBytesPerPod": 268435456, "maxReplicas": 3 },
   "series": { "rps": [[1762846215, 0]], "errorRate": [[1762846215, null]], "cpu": [], "memory": [], "replicas": [] },
-  "failed": []
+  "failed": [],
+  "actions": [{ "action": "SCALE_UP", "result": "VERIFIED", "attemptedAt": "…", "toSha": null }]
 }
 ```
 
@@ -183,6 +218,7 @@ The app page's numbers (FR-56), polled every 5 s. The backend runs fixed queries
 | `now.restarts` | Container restarts by Kubernetes in the last 30 minutes (Kairo's restarts replace the pod, so they show as incidents instead) |
 | `now.*` | The newest point of each series |
 | `failed` | Names whose query failed; their values are `null` |
+| `actions` | Kairo's actions on the app inside the window, oldest first, drawn on the charts as markers; `SKIPPED` ones changed nothing and are left out. `toSha` is a rollback's target commit (since P5d; read from the database, not Prometheus) |
 
 503 when Prometheus doesn't answer at all.
 
@@ -233,7 +269,7 @@ Break It (FR-63). `{ "kind": "kill-pod" }` deletes the newest pod; Kubernetes re
 { "incidentId": "…", "note": "rolled back to 9c8a2b0", "attempt": { "action": "ROLLBACK", "trigger": "MANUAL", "result": "APPLIED", "fromReleaseId": "…", "toReleaseId": "…", "…": "…" } }
 ```
 
-`attempt.result` is `FAILED` if Kubernetes refused the change. 400 without `releaseId`; 404 for an unknown app or release; 409 with the reason (the same text as `rollbackBlockedBy`) for the running release, a release never marked healthy or Break It's, a pruned image or one no longer on the laptop, `REMEDIATION_DRY_RUN`, and during a rollout, a grace window or another action's check.
+`attempt.result` is `FAILED` if Kubernetes refused the change. 400 without `releaseId`; 404 for an unknown app or release; 409 with the reason (the same text as `rollbackBlockedBy`) for the running release, a release never marked healthy or Break It's, an older release of an image a newer healthy release runs (since P5e), a pruned image or one no longer on the laptop, `REMEDIATION_DRY_RUN`, and during a rollout, a grace window or another action's check.
 
 ## DELETE /api/apps/:slug
 
@@ -414,6 +450,8 @@ The latest 50 Incidents, newest first.
   "recoverySeconds": 23,
   "githubIssueNumber": null,
   "githubIssueUrl": null,
+  "githubIssueAt": null,
+  "githubIssueOpened": null,
   "attempts": [
     {
       "id": "cmwakhgb40003sa1y2c7pk1ad",
@@ -439,7 +477,8 @@ The latest 50 Incidents, newest first.
 | --- | --- |
 | `status` | `OPEN`, `RESOLVED` |
 | `alertName` | One of the five Kairo alerts, another alert's name (recorded, no action), or `ManualRollback` for a rollback from the release list (since P4d) |
-| `githubIssueNumber`, `githubIssueUrl` | The app's Kairo issue (label `kairo`) this incident opened or commented on, or `null` (since P4d). An issue opens on a rollback or when Kairo stops acting (`NEEDS_ATTENTION`), never for a restart alone; while it is open, every later incident comments on it (FR-55). Only apps added through the GitHub App get issues |
+| `githubIssueNumber`, `githubIssueUrl` | The app's Kairo issue (label `kairo`) this incident opened or commented on, or `null` (since P4d). An issue opens on a rollback or when Kairo stops acting (`NEEDS_ATTENTION`), never for a restart alone; while it is open, every later incident comments on it (FR-55). Only apps added through the GitHub App get issues. Every issue body and comment ends with a link to the incident's page on Kairo, `<APP_URL>/apps/<slug>/incidents/<id>`, which opens only on the machine running Kairo (FR-42; since P5d) |
+| `githubIssueAt`, `githubIssueOpened` | When Kairo first reported this incident on that issue, and whether it opened the issue (`true`) or commented on the open one (`false`): the incident page's timeline step. `null` on incidents from before P5e |
 | `pod` | The pod the alert named (its `pod` label), or `null` for an app-level alert (since P3) |
 | `recoverySeconds` | Seconds from start to resolve, one decimal; `null` while open |
 | `attempts[]` | Oldest first. One per action Kairo took (or chose not to) |
@@ -452,11 +491,13 @@ The latest 50 Incidents, newest first.
 
 ## GET /api/incidents/:id
 
-One incident for the drawer (Stitch 08): the Incident above plus its app's memory around it. 404 for an unknown id.
+One incident for its page (since P5d; the drawer before, Stitch 08): the Incident above, its app's memory around it, and the app's next newer and older incidents. 404 for an unknown id.
 
 ```json
 {
   "…": "the Incident fields",
+  "newerId": "…",
+  "olderId": null,
   "memory": {
     "startSec": 1762846200, "endSec": 1762846800, "stepSec": 15,
     "limitBytes": 268435456,
@@ -466,6 +507,8 @@ One incident for the drawer (Stitch 08): the Incident above plus its app's memor
   }
 }
 ```
+
+`newerId` and `olderId` are the incidents just before and after this one in `GET /api/apps/:slug/incidents`'s order, for Newer/Older; `null` at either end.
 
 `pods` has each of the app's pods (up to 6, the incident's own `pod` first) from 5 minutes before the alert to 3 minutes after it resolved, or now while it is open, so a restarted pod's replacement shows too. `error` is set when Prometheus didn't answer; Prometheus keeps one day of data, so older incidents have no points.
 

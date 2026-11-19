@@ -182,24 +182,96 @@ export async function releaseReady(namespace, name, image) {
   return { ready: false, detail: (await podTrouble(namespace, name)) ?? `${s.readyReplicas ?? 0} of ${want} replicas ready` };
 }
 
-// The most telling reason a pod isn't ready: a waiting reason (CrashLoopBackOff,
-// ErrImageNeverPull...), else the last termination reason, else "not ready".
+// The most telling reason a pod isn't ready, for a run that fails at
+// DEPLOYING and for FR-72's check. A failing health check shows only as a pod
+// event (the container itself looks fine, or "Completed" after the kubelet
+// restarted it), so the events are read too. If they can't be read (no RBAC
+// for events yet, an API error), the pod's own state is used, as before P5f.
 async function podTrouble(namespace, app) {
+  let pods;
   try {
-    const pods = await call((c) =>
+    pods = await call((c) =>
       c.makeApiClient(k8s.CoreV1Api).listNamespacedPod({ namespace, labelSelector: `app=${app}` }),
     );
-    for (const pod of pods.items) {
-      for (const cs of pod.status?.containerStatuses ?? []) {
-        if (cs.state?.waiting?.reason) return cs.state.waiting.reason;
-        if (cs.lastState?.terminated?.reason) return `last exit: ${cs.lastState.terminated.reason}`;
-      }
-      if (pod.status?.phase === 'Pending') return 'pod is Pending';
-    }
-    return pods.items.length ? 'not ready' : 'no pods';
   } catch {
     return null;
   }
+  let events = [];
+  try {
+    const list = await call((c) => c.makeApiClient(k8s.CoreV1Api).listNamespacedEvent({ namespace }));
+    events = list.items ?? [];
+  } catch {
+    // no events: the pod's state alone
+  }
+  return troubleFrom(pods.items ?? [], events);
+}
+
+// pulling or starting the container went wrong: no health check ran at all
+const START_FAILURES = new Set([
+  'ErrImagePull', 'ImagePullBackOff', 'ErrImageNeverPull', 'InvalidImageName',
+  'CreateContainerConfigError', 'CreateContainerError', 'RunContainerError',
+]);
+// exit codes of a container the kubelet stopped (0 after a clean SIGTERM,
+// 143 = SIGTERM, 137 = SIGKILL at the end of the grace period), not of a crash
+const STOPPED_BY_KUBELET = new Set([0, 137, 143]);
+
+/**
+ * A kubelet "Unhealthy" event message in plain words, or null if it isn't a
+ * probe failure. Messages look like "Readiness probe failed: HTTP probe failed
+ * with statuscode: 400" or "Liveness probe failed: Get "http://…": dial tcp
+ * …: connect: connection refused".
+ */
+export function probeFailureText(message) {
+  const m = /^(Readiness|Liveness|Startup) probe failed: (.*)$/s.exec(String(message ?? '').trim());
+  if (!m) return null;
+  const why = m[2];
+  const status = /statuscode: (\d{3})/.exec(why);
+  if (status) return `Health check got HTTP ${status[1]} from the app`;
+  if (/connection refused/.test(why)) return "Health check couldn't connect: nothing is listening on the app's port";
+  if (/deadline exceeded|timeout/i.test(why)) return "Health check timed out: the app didn't answer in time";
+  if (/connection reset|EOF|broken pipe/.test(why)) return 'The app closed the health check connection without answering';
+  if (/no route to host|network is unreachable/.test(why)) return "Health check couldn't reach the pod";
+  return `Health check failed: ${why.replace(/\s+/g, ' ').slice(0, 160)}`;
+}
+
+const eventTime = (e) => Date.parse(e.lastTimestamp ?? e.eventTime ?? e.series?.lastObservedTime ?? e.firstTimestamp ?? e.metadata?.creationTimestamp ?? 0) || 0;
+
+/**
+ * Pods and their namespace's events → one short reason, or 'not ready' /
+ * 'no pods'. Exported for the unit test.
+ */
+export function troubleFrom(pods, events = []) {
+  const probeOf = (pod) => {
+    const mine = events
+      .filter((e) => e.involvedObject?.kind === 'Pod' && e.involvedObject?.name === pod.metadata?.name && e.reason === 'Unhealthy')
+      .sort((a, b) => eventTime(b) - eventTime(a));
+    for (const e of mine) {
+      const text = probeFailureText(e.message);
+      if (text) return text;
+    }
+    return null;
+  };
+  let anyProbe = null;
+  for (const pod of pods) {
+    const probe = probeOf(pod);
+    anyProbe ??= probe;
+    for (const cs of pod.status?.containerStatuses ?? []) {
+      const waiting = cs.state?.waiting?.reason;
+      const last = cs.lastState?.terminated;
+      if (waiting && START_FAILURES.has(waiting)) return waiting;
+      if (last?.reason === 'OOMKilled') return 'last exit: OOMKilled';
+      // the app runs (or ran until the kubelet stopped it) but fails its health check
+      if (probe && (!last || STOPPED_BY_KUBELET.has(last.exitCode))) {
+        const restarts = cs.restartCount ?? 0;
+        return restarts > 0 ? `${probe}; Kubernetes restarted it ${restarts} time${restarts === 1 ? '' : 's'}` : probe;
+      }
+      if (waiting) return waiting;
+      if (last?.reason) return `last exit: ${last.reason}`;
+    }
+    if (pod.status?.phase === 'Pending') return 'pod is Pending';
+  }
+  if (anyProbe) return anyProbe;
+  return pods.length ? 'not ready' : 'no pods';
 }
 
 // Deployments Kairo manages that have pods, across all namespaces (FR-9).

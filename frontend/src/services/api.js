@@ -10,7 +10,7 @@ export class ApiError extends Error {
 }
 
 // pages anyone may see; a 401 anywhere else means the session ended
-const PUBLIC_PATHS = ['/signin', '/not-invited'];
+const PUBLIC_PATHS = ['/signin', '/home', '/not-invited'];
 
 async function request(path, options = {}) {
   let res;
@@ -56,8 +56,10 @@ export const logout = () => postJson('/auth/logout');
 // the repo picker (FR-3, FR-6)
 export const listRepos = () => request('/repos');
 export const onboardRepo = (repoFullName) => postJson('/apps', { repoFullName });
-// the Apps list (Stitch 06): live apps, their health, release and numbers
-export const listApps = () => request('/apps');
+// the Apps list (Stitch 06): live apps, their health, release and numbers.
+// `numbers: false` leaves out each app's Prometheus figures (the sidebar on
+// the app screens shows only health and the cluster card)
+export const listApps = ({ numbers = true } = {}) => request(numbers ? '/apps' : '/apps?numbers=false');
 // Try again when the setup PR couldn't be opened (AQ11)
 export const getApp = (slug) => request(`/apps/${encodeURIComponent(slug)}`);
 export const retryPr = (slug) => postJson(`/apps/${encodeURIComponent(slug)}/pr`);
@@ -65,6 +67,15 @@ export const retryPr = (slug) => postJson(`/apps/${encodeURIComponent(slug)}/pr`
 // the live app page (P3b, FR-56 to FR-63)
 const app = (slug) => `/apps/${encodeURIComponent(slug)}`;
 export const getAppMetrics = (slug) => request(`${app(slug)}/metrics`);
+// the app's screens (P5d): each loads only what it shows
+/** @param {{ limit?: number, before?: string }} [opts] before: an incident id, for "Show older" */
+export const getAppIncidents = (slug, { limit, before } = {}) => {
+  const q = new URLSearchParams();
+  if (limit) q.set('limit', String(limit));
+  if (before) q.set('before', before);
+  return request(`${app(slug)}/incidents${q.size ? `?${q}` : ''}`);
+};
+export const getAppReleases = (slug) => request(`${app(slug)}/releases`);
 export const getAppLogs = (slug) => request(`${app(slug)}/logs`);
 export const setAutoHeal = (slug, autoHeal) =>
   request(app(slug), {
@@ -94,5 +105,5 @@ export const getHealth = () => request('/health');
 export const createDeployment = (repoUrl) => postJson('/deployments', { repoUrl });
 export const getDeployment = (id) => request(`/deployments/${encodeURIComponent(id)}`);
 
-// one incident with its pods' memory around it (the drawer, Stitch 08)
+// one incident with its pods' memory around it, and Newer/Older (the incident page)
 export const getIncident = (id) => request(`/incidents/${encodeURIComponent(id)}`);

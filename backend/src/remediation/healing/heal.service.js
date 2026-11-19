@@ -60,6 +60,12 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
   // claimed before the first await, so a second alert can't slip in
   const token = state.claimAction(app.slug, action);
   if (token === null) return skip('another action is still being verified');
+  // counted here too, before the first await, so two alerts arriving together
+  // (a restart and a rollback taking over from it) can't both pass the
+  // give-up check at 2 and make it 4. Given back if the action doesn't run
+  const counts = !manual && !NOT_COUNTED.has(action);
+  if (counts) state.countAttempt(app.slug, attemptedAt.getTime());
+  const giveBack = () => counts && state.uncountAttempt(app.slug, attemptedAt.getTime());
 
   // act
   let outcome;
@@ -73,6 +79,7 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
     });
   } catch (err) {
     state.releaseAction(app.slug, token);
+    giveBack();
     throw err;
   }
   const ran = outcome.action ?? action;
@@ -88,8 +95,10 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
     reason: outcome.result === 'SKIPPED' || outcome.result === 'FAILED' ? (outcome.note ?? null) : null,
   };
   if (outcome.result !== 'APPLIED') state.releaseAction(app.slug, token);
-  if (outcome.result === 'SKIPPED') return done(app, attempt, outcome.note);
-  if (!manual && !NOT_COUNTED.has(ran)) state.countAttempt(app.slug, attemptedAt.getTime());
+  if (outcome.result === 'SKIPPED') {
+    giveBack();
+    return done(app, attempt, outcome.note);
+  }
   if (outcome.result === 'FAILED') return done(app, attempt, outcome.note);
   // a person picked the release: the give-up count starts again (FR-49)
   if (manual) state.clearAttempts(app.slug);
@@ -112,6 +121,7 @@ export async function heal(app, action, ctx, trigger = 'AUTO') {
       action: ran,
       expect: outcome.expect,
       attemptId,
+      attempt,
       attentionAfter: outcome.attentionAfter,
       startedAt: attemptedAt.getTime(),
       token,

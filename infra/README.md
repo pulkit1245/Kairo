@@ -75,6 +75,22 @@ Then set `KUBECONFIG=$HOME/.kube/kairo-platform.yaml` in `backend/.env`. Run the
 
 `npm run prom:forward` in `backend/` opens the same port-forward by hand with your own kubeconfig; the backend uses it if it is already open.
 
+### What Kairo's account may write (FR-68)
+
+RBAC can't limit a ClusterRole to namespaces named `kairo-*`, so the ValidatingAdmissionPolicy `kairo-platform-writes` (`infra/rbac/admission.tf`) does: as `kairo-platform`, a create, update or delete is allowed only on a namespace named `kairo-<app>`, inside one, or on `monitoring/kairo-alert-rules`. Everything else is refused, including Kairo's own namespace `kairo`, `kube-system` and `default`. Reads and the Prometheus port-forward are untouched. It matches only `system:serviceaccount:kairo:kairo-platform` (a `matchConditions` on the username), so admin kubeconfigs, Terraform and the cluster's own components are never evaluated by it.
+
+Check it (server-side dry runs, nothing changes; exits 1 on any surprise):
+
+```bash
+infra/scripts/check-platform-writes.sh
+```
+
+Switch it off at once if it ever blocks Kairo (`terraform apply` puts it back):
+
+```bash
+kubectl --context docker-desktop delete validatingadmissionpolicybinding kairo-platform-writes
+```
+
 ### App alert rules (P1)
 
 Terraform creates an empty ConfigMap `monitoring/kairo-alert-rules`. The backend writes one key per app (`<slug>.rules.yml`) when it deploys the app. Prometheus mounts the ConfigMap at `/etc/kairo-rules`, loads `*.yml` from it, and its config reloader picks up changes within about a minute. `kairo-platform` may only `get` and `patch` this one ConfigMap.

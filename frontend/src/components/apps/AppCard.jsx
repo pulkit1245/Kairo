@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { incidentUrl, screenUrl } from '../app/screens.js';
 import { relativeTime, shortSha } from '../common/format.js';
 import { Icon } from '../common/Icon.jsx';
 import { incidentKind } from '../app/incident.text.js';
@@ -81,7 +82,7 @@ export function AppCard({ app, now }) {
             <Icon name="open_in_new" className="text-[16px]" /> Open
           </Link>
           {live ? (
-            <Link to={`/apps/${app.slug}#logs`} className={button}>
+            <Link to={screenUrl(app.slug, 'logs')} className={button}>
               <Icon name="terminal" className="text-[16px]" /> Logs
             </Link>
           ) : (
@@ -108,7 +109,7 @@ export function AppCard({ app, now }) {
         ) : (
           <span className="text-on-surface-variant">No running release</span>
         )}
-        <LastIncident incident={app.lastIncident} now={now} />
+        <LastIncident slug={app.slug} incident={app.lastIncident} now={now} />
       </div>
     </article>
   );
@@ -158,24 +159,28 @@ function PublicLink({ app, live }) {
 }
 
 // names the kind: "crash loop, 2 min ago (recovered in 9.5 s)", "manual
-// rollback, 26 min ago", "crash loop, open"
-function LastIncident({ incident, now }) {
+// rollback, 26 min ago", "crash loop, open"; links to the incident's page
+function LastIncident({ slug, incident, now }) {
   if (!incident) return <span className="ml-auto text-on-surface-variant">No incidents</span>;
   const open = incident.status === 'OPEN';
   const kind = incidentKind(incident);
   return (
     <span className="ml-auto flex items-center gap-2">
       <span className="text-on-surface-variant">Last incident:</span>
-      {open ? (
-        <span className="text-warning" title={incident.cause}>
-          {kind}, open
-        </span>
-      ) : (
-        <span className="text-on-surface" title={incident.cause}>
-          {kind}, {relativeTime(incident.startedAt, now)}
-          {incident.recoverySeconds !== null && ` (recovered in ${incident.recoverySeconds} s)`}
-        </span>
-      )}
+      <Link
+        to={incidentUrl(slug, incident.id)}
+        title={incident.cause}
+        className={`hover:underline ${open ? 'text-warning' : 'text-on-surface'}`}
+      >
+        {open ? (
+          `${kind}, open`
+        ) : (
+          <>
+            {kind}, {relativeTime(incident.startedAt, now)}
+            {incident.recoverySeconds !== null && ` (recovered in ${incident.recoverySeconds} s)`}
+          </>
+        )}
+      </Link>
       <span className={`size-2 rounded-full ${open ? 'bg-warning' : 'bg-tertiary'}`} />
     </span>
   );

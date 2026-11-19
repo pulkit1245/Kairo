@@ -66,6 +66,15 @@ resource "kubernetes_cluster_role_v1" "kairo_platform" {
     verbs      = ["get"]
   }
 
+  # list: why a pod isn't ready. A failing health check shows only as a pod
+  # event ("Readiness probe failed: HTTP probe failed with statuscode: 400"),
+  # read when a run fails at DEPLOYING (P5f). Read-only
+  rule {
+    api_groups = [""]
+    resources  = ["events"]
+    verbs      = ["list"]
+  }
+
   # create: first deploy. patch: server-side apply on every later deploy (added in P1)
   rule {
     api_groups = [""]

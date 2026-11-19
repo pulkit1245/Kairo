@@ -48,6 +48,13 @@ export function countAttempt(slug, at = Date.now()) {
   recent.set(slug, [...(recent.get(slug) ?? []), at]);
 }
 
+// gives back a count taken when the action was claimed, if it didn't run
+export function uncountAttempt(slug, at) {
+  const list = recent.get(slug) ?? [];
+  const i = list.indexOf(at);
+  if (i !== -1) recent.set(slug, [...list.slice(0, i), ...list.slice(i + 1)]);
+}
+
 // a cleared NEEDS_ATTENTION starts the count again
 export const clearAttempts = (slug) => recent.delete(slug);
 

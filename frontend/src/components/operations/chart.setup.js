@@ -24,26 +24,41 @@ const markers = {
     ctx.save();
     ctx.font = "10px 'JetBrains Mono', ui-monospace, monospace";
     ctx.textBaseline = 'top';
-    // placed labels per row; a label goes on the first row where it fits
-    const rows = [];
-    for (const m of items) {
-      const x = scales.x.getPixelForValue(m.x);
-      if (x < chartArea.left || x > chartArea.right) continue;
+    const panel = themeColor('surface-container-low') || 'transparent';
+    const shown = items
+      .map((m) => ({ ...m, px: scales.x.getPixelForValue(m.x) }))
+      .filter((m) => m.px >= chartArea.left && m.px <= chartArea.right);
+
+    // 1. every line first, so no line is drawn over a label placed before it
+    ctx.setLineDash([3, 3]);
+    for (const m of shown) {
       ctx.strokeStyle = m.color;
-      ctx.fillStyle = m.color;
-      ctx.setLineDash([3, 3]);
       ctx.beginPath();
-      ctx.moveTo(x, chartArea.top);
-      ctx.lineTo(x, chartArea.bottom);
+      ctx.moveTo(m.px, chartArea.top);
+      ctx.lineTo(m.px, chartArea.bottom);
       ctx.stroke();
+    }
+
+    // 2. the labels, staggered: each goes on the first row where it overlaps
+    // no other label (with a gap), so close markers step down instead of
+    // running into each other
+    const ROW = 14;
+    const GAP = 6;
+    const rows = [];
+    for (const m of shown) {
       if (!m.label) continue;
       const w = ctx.measureText(m.label).width;
       // right of the line, or left of it near the right edge
-      const left = x + 3 + w > chartArea.right - 4 ? x - 3 - w : x + 3;
-      let row = rows.findIndex((boxes) => boxes.every(([a, b]) => left + w + 4 < a || left > b + 4));
+      const left = m.px + 3 + w > chartArea.right - 4 ? m.px - 3 - w : m.px + 3;
+      let row = rows.findIndex((boxes) => boxes.every(([a, b]) => left + w + GAP < a || left > b + GAP));
       if (row === -1) row = rows.push([]) - 1;
       rows[row].push([left, left + w]);
-      ctx.fillText(m.label, left, chartArea.top + 2 + row * 12);
+      const y = chartArea.top + 2 + row * ROW;
+      // on the panel's colour, so the text reads over grid, limit and marker lines
+      ctx.fillStyle = panel;
+      ctx.fillRect(left - 2, y - 2, w + 4, ROW - 1);
+      ctx.fillStyle = m.color;
+      ctx.fillText(m.label, left, y);
     }
     ctx.restore();
   },

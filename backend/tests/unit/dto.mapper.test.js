@@ -110,7 +110,10 @@ describe('toAppDto (P2c app page)', () => {
     const dto = toAppDto(row, { graceMs: 60_000, storedImages: new Set(['ghcr.io/alice/hello-node:b']) });
     assert.equal(dto.release.id, 'r2');
     assert.equal(dto.release.graceEndsAt, '2026-11-11T12:01:00.000Z');
-    assert.deepEqual(dto.releases.map((r) => [r.status, r.imageStored]), [['ACTIVE', true], ['SUPERSEDED', false]]);
+    assert.equal(dto.release.imageStored, true);
+    // P5d: the lists are the Releases and Incidents screens' own requests
+    assert.equal(dto.releases, undefined);
+    assert.equal(dto.incidents, undefined);
     assert.equal(dto.pr.url, 'https://github.com/alice/hello-node/pull/1');
     assert.equal(dto.watchingGhcr, true);
     assert.equal(dto.pipeline.status, 'FAILED');

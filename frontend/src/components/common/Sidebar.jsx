@@ -1,34 +1,27 @@
 import { Link, NavLink, useLocation, useMatch } from 'react-router';
+import { SCREENS, screenOf, screenUrl } from '../app/screens.js';
 import { Icon } from './Icon.jsx';
 import { HEALTH, TONE_CLASS } from './status.js';
 
 // The sidebar holds only things Kairo has (Stitch README, "Sidebar"): Apps,
-// each app with its health, the viewed app's dashboard sections, and a small
-// cluster card. No Settings, no cross-app pages: an app's incidents and logs
-// live on its one dashboard page, and the section links jump within it.
+// each app with its health, the viewed app's screens, and a small cluster
+// card. No Settings, no cross-app pages: an app's incidents and logs are its
+// own screens (P5d, mockup v2), each at its own address.
 //
 // `apps` is the Layout's poll of GET /api/apps, shared with the Apps page.
-
-// ids on the app page (AppPage.jsx and its panels). Overview is the top
-export const SECTIONS = [
-  { id: 'overview', label: 'Overview', icon: 'dashboard' },
-  { id: 'incidents', label: 'Incidents', icon: 'emergency_home' },
-  { id: 'logs', label: 'Logs', icon: 'terminal' },
-  { id: 'releases', label: 'Releases', icon: 'history' },
-  { id: 'test-panel', label: 'Test panel', icon: 'science' },
-];
 
 export function Sidebar({ apps }) {
   const list = apps.data;
   return (
     <aside className="hidden w-56 shrink-0 border-r border-outline-variant bg-surface-container-low md:block">
       <div className="sticky top-0 flex h-screen flex-col">
-        <div className="flex items-center gap-2.5 px-4 py-4">
+        {/* the logo opens the landing page (signed in, it shows who you are) */}
+        <Link to="/home" className="flex items-center gap-2.5 px-4 py-4 hover:text-primary">
           <span className="grid size-8 place-items-center rounded bg-primary-container text-on-primary-container">
             <Icon name="deployed_code" className="text-[20px]" />
           </span>
           <span className="text-headline-md font-semibold">Kairo</span>
-        </div>
+        </Link>
         <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-3" aria-label="Main">
           <NavLink
             to="/"
@@ -58,7 +51,7 @@ export function Sidebar({ apps }) {
 }
 
 function AppItem({ app }) {
-  const viewing = useMatch('/apps/:slug')?.params.slug === app.slug;
+  const viewing = useMatch('/apps/:slug/*')?.params.slug === app.slug;
   const h = appHealth(app);
   return (
     <li>
@@ -82,26 +75,26 @@ function AppItem({ app }) {
   );
 }
 
-// the viewed app's dashboard sections, as links to #ids on its page
+// the viewed app's screens, as links to their addresses (P5d)
 function Sections({ app }) {
-  const { hash } = useLocation();
-  const current = hash.slice(1) || 'overview';
+  const { pathname } = useLocation();
+  const current = screenOf(pathname, app.slug);
   return (
-    <ul className="my-1 ml-3 flex flex-col border-l border-outline-variant" aria-label={`${app.slug} sections`}>
-      {SECTIONS.map((s) => {
-        const active = s.id === current;
+    <ul className="my-1 ml-3 flex flex-col border-l border-outline-variant" aria-label={`${app.slug} screens`}>
+      {SCREENS.map((s) => {
+        const active = s.key === current;
         return (
-          <li key={s.id}>
+          <li key={s.key}>
             <Link
-              to={`/apps/${app.slug}#${s.id}`}
-              aria-current={active ? 'location' : undefined}
+              to={screenUrl(app.slug, s.key)}
+              aria-current={active ? 'page' : undefined}
               className={`-ml-px flex items-center gap-2 border-l-2 py-1 pl-3 pr-2 text-body-md ${
                 active ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
               }`}
             >
               <Icon name={s.icon} className="text-[16px]" />
               <span className="flex-1">{s.label}</span>
-              {s.id === 'incidents' && app.openIncidents > 0 && (
+              {s.key === 'incidents' && app.openIncidents > 0 && (
                 <span
                   className="rounded border border-warning/40 bg-warning/10 px-1.5 font-mono text-code-sm text-warning"
                   title={`${app.openIncidents} open incident${app.openIncidents === 1 ? '' : 's'}`}
