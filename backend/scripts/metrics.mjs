@@ -160,7 +160,7 @@ async function main() {
     `attempts since the first verified one (${since.toISOString().slice(0, 16)}Z) still APPLIED after 120 s; verified within ${range(checkS)}. ${before} older attempts from before verification existed (P1, P2) were never checked`);
 
   // 8. healing with Postgres stopped
-  add('Healing with Postgres stopped', 'restart still happens', 'restart happened (P1 and P5f)', true, 'measured by hand: note 02 (P1), check 8; note 06 (P5f, 19 Nov): kairo-db stopped 192 s, /leak, RESTART at once, incident saved when Postgres came back; its verification was lost (the unknown outcome above)');
+  add('Healing with Postgres stopped', 'restart still happens', 'restart happened (P1 and P5f)', true, 'measured by hand: note 02 (P1), check 8; note 06 (P5f, 19 Nov 11:38): kairo-db stopped 60 s, /leak, RESTART and its check (VERIFIED) with the database down, the incident saved with the attempt VERIFIED once Postgres was back (fixed in 54dcd59; the first P5f run at 11:27 lost its verification, and the boot re-check marked it VERIFIED 10 min later)');
 
   // 9 and 10. scale up under load, and back to 1 after it
   const cpu = incidents.filter((i) => ['KairoHighCpu', 'KairoHighLatency'].includes(i.alertName));
