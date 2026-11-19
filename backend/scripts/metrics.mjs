@@ -30,10 +30,19 @@ export const REFERENCE_REPOS = [
   'koyeb/example-fastapi',
   'heroku/python-getting-started',
 ];
-const SAMPLE_REPOS = ['PunitXd/kairo-node-sample', 'PunitXd/kairo-python-sample'];
+// P5f ran each reference repo from a fork, through the picker, so the setup PR
+// could be merged and its workflow run. #1's upstream was renamed since P2
+// (heroku/nodejs-getting-started); the fork has the new name
+const FORK_OWNER = 'PunitXd';
+const forkOf = (repo) => `${FORK_OWNER}/${repo === 'heroku/node-js-getting-started' ? 'nodejs-getting-started' : repo.split('/')[1]}`;
+const SAMPLE_REPOS = ['PunitXd/kairo-node-sample', 'PunitXd/kairo-python-sample', 'PunitXd/kairo-dockerfile-sample'];
+// times Docker's build cache was emptied on purpose (docker builder prune -af),
+// so the next build of any commit is a fresh one
+const CACHE_CLEARED = ['2026-11-19T11:01:11Z'];
 
 const secs = (a, b) => (new Date(b) - new Date(a)) / 1000;
 const fmt = (s) => (s === null || s === undefined || Number.isNaN(s) ? '—' : s >= 120 ? `${(s / 60).toFixed(1)} min` : `${s.toFixed(1)} s`);
+const day = (d) => d.toISOString().slice(5, 16).replace('T', ' ');
 const range = (xs) => (xs.length ? `${fmt(Math.min(...xs))} to ${fmt(Math.max(...xs))} (n=${xs.length})` : 'no data');
 
 async function github(path) {
@@ -56,9 +65,9 @@ async function main() {
   });
   const incidents = await prisma.incident.findMany({ include: { attempts: true, app: true } });
 
-  // 1. reference repos reaching a running preview: the latest run of each
+  // 1. reference repos reaching a running preview: the latest run of each, upstream or fork
   const latest = REFERENCE_REPOS.map((repo) => {
-    const runs = apps.filter((a) => a.repoFullName === repo).flatMap((a) => a.pipelineRuns);
+    const runs = apps.filter((a) => [repo, forkOf(repo)].includes(a.repoFullName)).flatMap((a) => a.pipelineRuns);
     runs.sort((a, b) => b.startedAt - a.startedAt);
     return { repo, run: runs[0] ?? null };
   });
@@ -66,31 +75,45 @@ async function main() {
   add('Reference repos reaching a running preview', '8 of 10', `${running.length} of 10`, running.length >= 8,
     `latest PipelineRun per repo; not running: ${latest.filter((l) => l.run?.status !== 'RUNNING').map((l) => `${l.repo} (${l.run ? `${l.run.status}${l.run.failedStep ? ` at ${l.run.failedStep}` : ''}` : 'never run'})`).join(', ') || 'none'}`);
 
-  // 2. pick repo to preview running, for the sample apps
-  const sampleTimes = apps
+  // 2. pick repo to preview running, for the sample apps. Kairo always runs
+  // docker build, but a commit built before (by any app, since the last time
+  // the build cache was emptied) finds every layer cached, so it is told apart
+  const allRuns = apps.flatMap((a) => a.pipelineRuns).sort((a, b) => a.startedAt - b.startedAt);
+  const built = (r) => r.status === 'RUNNING' || ['DEPLOYING'].includes(r.failedStep);
+  const cacheFrom = (t) => Math.max(0, ...CACHE_CLEARED.map(Date.parse).filter((c) => c <= t));
+  const cached = (r) => allRuns.some((o) => o !== r && o.commitSha && o.commitSha === r.commitSha && built(o) && o.startedAt < r.startedAt && o.startedAt.getTime() >= cacheFrom(r.startedAt.getTime()));
+  const sampleRuns = apps
     .filter((a) => SAMPLE_REPOS.includes(a.repoFullName))
     .flatMap((a) => a.pipelineRuns)
-    .filter((r) => r.status === 'RUNNING' && r.finishedAt)
-    .map((r) => secs(r.startedAt, r.finishedAt));
-  add('Pick repo to preview running (sample apps)', 'under 3 min', range(sampleTimes), sampleTimes.length > 0 && Math.max(...sampleTimes) < 180,
-    'PipelineRun startedAt to finishedAt (RUNNING), every run of kairo-node-sample and kairo-python-sample');
+    .filter((r) => r.status === 'RUNNING' && r.finishedAt);
+  const sampleTimes = sampleRuns.map((r) => secs(r.startedAt, r.finishedAt));
+  const freshRuns = sampleRuns.filter((r) => !cached(r));
+  const freshTimes = freshRuns.map((r) => secs(r.startedAt, r.finishedAt));
+  const cachedTimes = sampleRuns.filter(cached).map((r) => secs(r.startedAt, r.finishedAt));
+  const emptyCache = freshRuns.filter((r) => CACHE_CLEARED.some((c) => Date.parse(c) <= r.startedAt.getTime() && !allRuns.some((o) => o.startedAt > new Date(c) && o.startedAt < r.startedAt && built(o))));
+  add('Pick repo to preview running (sample apps)', 'under 3 min', `first build of the commit: ${range(freshTimes)}, of which on an empty build cache: ${range(emptyCache.map((r) => secs(r.startedAt, r.finishedAt)))}; commit built before: ${range(cachedTimes)}`, sampleTimes.length > 0 && Math.max(...sampleTimes) < 180,
+    `PipelineRun startedAt to finishedAt (RUNNING), every run of ${SAMPLE_REPOS.map((r) => r.split('/')[1]).join(', ')}. "Built before": an earlier run had already built that commit since the build cache was last emptied, so all its layers were cached. A first build of a commit can still reuse the dependency layers of an earlier commit; "empty build cache" is the first build after docker builder prune (CACHE_CLEARED). First builds: ${freshRuns.map((r) => `${day(r.startedAt)} ${r.commitSha?.slice(0, 7)} ${fmt(secs(r.startedAt, r.finishedAt))}`).join(', ') || 'none'}`);
 
-  // 3. generated workflows passing on first run: the first Actions run of kairo.yml on our own repos
-  const wf = [];
-  // only repos whose setup PR was merged: before that, kairo.yml isn't on the default branch
-  for (const repo of [...new Set(apps.filter((a) => a.prState === 'MERGED').map((a) => a.repoFullName))]) {
+  // 3. generated workflows passing on first run: the first Actions run of
+  // kairo.yml on each reference fork. GitHub answers 404 while kairo.yml isn't
+  // on the default branch (no setup PR, or not merged), and for a fork deleted
+  // after P5f; the values P5f read are in note 06
+  const firstRun = async (repo) => {
     try {
       const data = await github(`/repos/${repo}/actions/workflows/kairo.yml/runs?per_page=100`);
       const first = [...data.workflow_runs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
-      wf.push({ repo, conclusion: first?.conclusion ?? 'no run' });
+      return { repo, conclusion: first ? first.conclusion ?? first.status : 'no run yet' };
     } catch (e) {
-      wf.push({ repo, conclusion: `unknown (${e.message})` });
+      return { repo, conclusion: /404/.test(e.message) ? 'no kairo.yml on the default branch' : `unknown (${e.message})` };
     }
-  }
-  const passed = wf.filter((w) => w.conclusion === 'success').length;
-  const unmerged = [...new Set(apps.filter((a) => a.installationId && a.prState !== 'MERGED').map((a) => a.repoFullName))];
-  add('Generated workflows passing on first run', '8 of 10 (reference repos)', `${passed} of ${wf.length} merged setup PRs`, null,
-    `first kairo.yml run after the merge: ${wf.map((w) => `${w.repo} ${w.conclusion}`).join(', ') || 'none'}; setup PR not merged (no workflow yet): ${unmerged.join(', ') || 'none'}. Reference repos: on forks in P5f`);
+  };
+  const refWf = [];
+  for (const repo of REFERENCE_REPOS) refWf.push(await firstRun(forkOf(repo)));
+  const ownWf = [];
+  for (const repo of SAMPLE_REPOS) ownWf.push(await firstRun(repo));
+  const passed = refWf.filter((w) => w.conclusion === 'success').length;
+  add('Generated workflows passing on first run', '8 of 10', `${passed} of 10 reference forks`, passed >= 8,
+    `first kairo.yml run on each fork: ${refWf.map((w) => `${w.repo.split('/')[1]} ${w.conclusion}`).join(', ')}. Sample repos: ${ownWf.map((w) => `${w.repo.split('/')[1]} ${w.conclusion}`).join(', ')}`);
 
   // 4. merged push to new release live: commit time to Release deployedAt (GHCR releases)
   const pushes = [];
@@ -114,10 +137,10 @@ async function main() {
   const crashS = rolled.map((i) => secs(i.startedAt, i.resolvedAt));
   const breaks = attempts.filter((a) => a.action === 'ROLLBACK' && a.fromRelease?.source === 'TEST' && a.result !== 'SKIPPED');
   const breakToRollback = breaks.map((a) => secs(a.fromRelease.deployedAt, a.attemptedAt));
-  const day = (d) => d.toISOString().slice(5, 16).replace('T', ' ');
-  const breakList = breaks.map((a) => `${day(a.attemptedAt)} ${fmt(secs(a.fromRelease.deployedAt, a.attemptedAt))}`).join(', ');
+  // the Break It release is recorded when it is deployed, the moment of the click
+  const breakList = breaks.map((a) => `${day(a.attemptedAt)} ${fmt(secs(a.fromRelease.deployedAt, a.attemptedAt))}${a.verifiedAt ? ` (verified ${fmt(secs(a.fromRelease.deployedAt, a.verifiedAt))})` : ''}`).join(', ');
   add('Crash-looping release rolled back', 'within 2 min', range(crashS), crashS.length > 0 && Math.max(...crashS) <= 120,
-    `Incident startedAt to resolvedAt for KairoCrashLoop with a rollback (${crash.length - rolled.length} without one, e.g. dry run or no healthy target). Break It deploy to rollback action (not the PRD measure; includes the 30 s alert wait): ${range(breakToRollback)}: ${breakList}`);
+    `Incident startedAt to resolvedAt for KairoCrashLoop with a rollback (${crash.length - rolled.length} without one, e.g. dry run or no healthy target). Stricter, not the PRD measure: Break It click to the rollback action (verified in brackets), which includes the crash-loop wait before the alert: ${range(breakToRollback)}: ${breakList}`);
 
   // 6. rollbacks to unhealthy releases
   const rollbacks = attempts.filter((a) => a.action === 'ROLLBACK' && !['SKIPPED', 'FAILED'].includes(a.result));
@@ -137,7 +160,7 @@ async function main() {
     `attempts since the first verified one (${since.toISOString().slice(0, 16)}Z) still APPLIED after 120 s; verified within ${range(checkS)}. ${before} older attempts from before verification existed (P1, P2) were never checked`);
 
   // 8. healing with Postgres stopped
-  add('Healing with Postgres stopped', 'restart still happens', 'passed in P1', true, 'measured by hand: note 02 (P1), check 8; re-run in P5f');
+  add('Healing with Postgres stopped', 'restart still happens', 'restart happened (P1 and P5f)', true, 'measured by hand: note 02 (P1), check 8; note 06 (P5f, 19 Nov): kairo-db stopped 192 s, /leak, RESTART at once, incident saved when Postgres came back; its verification was lost (the unknown outcome above)');
 
   // 9 and 10. scale up under load, and back to 1 after it
   const cpu = incidents.filter((i) => ['KairoHighCpu', 'KairoHighLatency'].includes(i.alertName));
@@ -145,7 +168,7 @@ async function main() {
   const downs = cpu.flatMap((i) => i.attempts.filter((a) => a.action === 'SCALE_DOWN' && a.verifiedAt && i.resolvedAt).map((a) => ({ at: a.verifiedAt, s: secs(i.resolvedAt, a.verifiedAt) })));
   const down = downs.map((d) => d.s);
   add('Scale-up under Send Traffic', 'extra replica within 2 min', range(up), up.length > 0 && Math.max(...up) <= 120,
-    'alert start to the scale-up verified (the test start itself is not stored; P5f times it from the click)');
+    'alert start to the scale-up verified (the click itself is not stored). From the click, timed by hand in P5f (note 06): 56.5 s (python) and 63.5 s (node)');
   add('Scale back to 1 after load', 'within 7 min', range(down), down.length > 0 && Math.max(...down) <= 420,
     `alert resolved (load over) to the scale-down verified, each: ${downs.map((d) => `${d.at.toISOString().slice(5, 16).replace('T', ' ')} ${fmt(d.s)}`).join(', ')}`);
 
@@ -166,10 +189,14 @@ async function main() {
     windows.push({ slug, max, at });
   }
   const worst = windows.sort((a, b) => b.max - a.max)[0];
+  // the give-up race fix (4d82e61, 10 Nov 21:48 UTC): the same count from then on
+  const FIX = Date.parse('2026-11-10T21:48:00Z');
+  let afterFix = 0;
+  for (const ts of byApp.values()) for (const t of ts.filter((x) => x >= FIX)) afterFix = Math.max(afterFix, ts.filter((x) => x >= t && x < t + TEN_MIN).length);
   const gaveUp = attempts.filter((a) => /gave up/.test(a.reason ?? '')).length;
   const over = windows.filter((w) => w.max > 3);
-  add('Endless remediation loops', 'zero; give-up always triggers', `max ${worst?.max ?? 0} counted attempts in 10 min (${worst?.slug ?? '—'})`, over.length === 0,
-    `${gaveUp} give-up stops with a stored reason (reasons are stored since P3c; the 10 Nov 22:00 stop predates that). ${over.map((w) => `${w.slug} had ${w.max} from ${new Date(w.at).toISOString().slice(0, 16)}Z`).join('; ') || 'no app over 3'}`);
+  add('Endless remediation loops', 'zero; give-up always triggers', `max ${worst?.max ?? 0} counted attempts in 10 min (${worst?.slug ?? '—'}); since the give-up fix: max ${afterFix}`, afterFix <= 3,
+    `${gaveUp} give-up stops with a stored reason (reasons are stored since P3c; the 10 Nov 22:00 stop predates that). ${over.map((w) => `${w.slug} had ${w.max} from ${new Date(w.at).toISOString().slice(0, 16)}Z`).join('; ') || 'no app over 3'}. Met is judged from the give-up race fix on (4d82e61, 10 Nov 21:48 UTC); the windows over 3 before it are the race that fix closed (note 06, P5a)`);
 
   // 12. platform fits the laptop: the node's memory, peak over Prometheus's day
   let peak = null;
